@@ -22,9 +22,10 @@ import { state, save, active, uid, getPhoto, putPhoto, blobToDataURL, dataURLToB
 const SDK = 'https://www.gstatic.com/firebasejs/12.18.0';
 
 /** Coleções espelhadas na nuvem. `chat` e `taskLog` ficam só no aparelho:
- *  conversa do Consultor é longa e local; marcação de tarefa do dia é efêmera. */
+ *  conversa do Consultor é longa e local; marcação de tarefa do dia é efêmera.
+ *  `dismissedAlerts` também é local: é só uma preferência de "já vi este aviso". */
 export const SYNC_COLLS = ['tests', 'dosings', 'tpas', 'feedings', 'livestock', 'plants', 'tasks', 'notes'];
-const LOCAL_ONLY = new Set([...SYNC_COLLS, 'chat', 'taskLog', 'events', 'tombstones', 'id']);
+const LOCAL_ONLY = new Set([...SYNC_COLLS, 'chat', 'taskLog', 'dismissedAlerts', 'events', 'tombstones', 'id']);
 
 const MAX_PHOTO_B64 = 900000;   // limite de campo do Firestore é 1.048.487 bytes
 

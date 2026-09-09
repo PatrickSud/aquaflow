@@ -1,16 +1,37 @@
 /* views/dashboard.js — tela "Aquário": o painel que prioriza o que precisa de atenção. */
 
-import { h, icon, cardHead, row, pill, alertBox, empty, toast, sheet } from '../ui.js';
+import { h, icon, cardHead, row, pill, alertBox, empty, toast, sheet, switchBtn } from '../ui.js';
 import { photoURL, state, save } from '../store.js';
 import { PARAMS, P, CORE, SPEC } from '../model.js';
 import {
   waterQuality, statusOf, statusLabel, latest, trend, trendText, cyclingStatus,
-  canAddFish, bioload, bioStatus, alerts, nextTestDue, fmtNum, fmtDate, relDay, ageDays, target,
+  canAddFish, bioload, bioStatus, alerts, alertSig, nextTestDue, fmtNum, fmtDate, relDay, ageDays, target,
   tpaDue, tpaVerdict, doseDue, sameDay, num, tpaCalc
 } from '../engine.js';
 import { installBanner, canOfferInstall } from '../pwa.js';
 import { openTestSheet } from './params.js';
 import { openTPASheet, openDoseSheet, openFeedSheet, openNoteSheet } from './logs.js';
+
+/* ---------- blocos configuráveis do painel (ordem e visibilidade) ---------- */
+const WIDGET_DEFS = [
+  { id: 'consultor', label: 'Consultor', icon: 'bulb' },
+  { id: 'parametros', label: 'Parâmetros', icon: 'flask' },
+  { id: 'ciclagem', label: 'Ciclagem', icon: 'refresh' },
+  { id: 'tarefas', label: 'Tarefas de hoje', icon: 'clip' },
+  { id: 'fauna', label: 'Fauna e carga biológica', icon: 'fish' },
+  { id: 'plantas', label: 'Plantas', icon: 'leaf' },
+  { id: 'manutencao', label: 'Manutenção', icon: 'timer' },
+  { id: 'diario', label: 'Diário', icon: 'book' }
+];
+const WIDGET_IDS = WIDGET_DEFS.map((w) => w.id);
+
+/** Ordem e visibilidade salvas pelo usuário; blocos novos entram no fim, visíveis. */
+function widgetLayout() {
+  const pref = state.settings.dashboardWidgets || {};
+  const order = Array.isArray(pref.order) ? pref.order.filter((id) => WIDGET_IDS.includes(id)) : [];
+  WIDGET_IDS.forEach((id) => { if (!order.includes(id)) order.push(id); });
+  return { order, hidden: new Set(Array.isArray(pref.hidden) ? pref.hidden : []) };
+}
 
 export default function dashboard(ctx) {
   const aq = ctx.aq;
@@ -35,7 +56,6 @@ export default function dashboard(ctx) {
   hero.appendChild(img);
 
   const wq = waterQuality(aq);
-  const bl = bioload(aq);
   const live = (aq.livestock || []).filter((x) => x.status !== 'obito' && x.status !== 'removido');
   const nFish = live.reduce((s, x) => s + (Number(x.qty) || 0), 0);
 
@@ -55,16 +75,39 @@ export default function dashboard(ctx) {
   el.appendChild(hero);
 
   /* ---- alertas relevantes ---- */
-  const al = alerts(aq).filter((a) => a.s === 'bad' || a.s === 'warn').slice(0, 3);
-  const info = alerts(aq).filter((a) => a.s === 'info' || a.s === 'ok').slice(0, 2);
+  const dismissed = new Set(aq.dismissedAlerts || []);
+  const al = alerts(aq).filter((a) => (a.s === 'bad' || a.s === 'warn') && !dismissed.has(alertSig(a))).slice(0, 3);
+  const info = alerts(aq).filter((a) => (a.s === 'info' || a.s === 'ok') && !dismissed.has(alertSig(a))).slice(0, 2);
   if (al.length || info.length) {
     el.appendChild(h('div', { class: 'sec-title', text: 'Alertas' }));
-    al.forEach((a) => el.appendChild(alertBox(a)));
-    info.forEach((a) => el.appendChild(alertBox(a)));
+    al.forEach((a) => el.appendChild(alertBox(a, () => dismissAlert(aq, a, ctx))));
+    info.forEach((a) => el.appendChild(alertBox(a, () => dismissAlert(aq, a, ctx))));
   }
 
-  /* ---- consultor ---- */
-  el.appendChild(h('div', { class: 'card press', onclick: () => ctx.nav('consultor') },
+  /* ---- blocos configuráveis, na ordem e visibilidade escolhidas pelo usuário ---- */
+  const { order, hidden } = widgetLayout();
+  order.forEach((id) => {
+    if (hidden.has(id)) return;
+    const build = WIDGET_BUILD[id];
+    if (build) el.appendChild(build(aq, ctx));
+  });
+
+  el.appendChild(h('div', { style: { height: '10px' } }));
+  el.appendChild(h('button', { class: 'btn sec', onclick: () => ctx.nav('historico') }, icon('chart', 'ic ic-sm'), 'Histórico e gráficos'));
+
+  return {
+    title: aq.name,
+    actions: [
+      { icon: 'edit', label: 'Editar aquário', on: () => ctx.nav('aquarios/editar/' + aq.id) },
+      { icon: 'sliders', label: 'Personalizar painel', on: () => openDashboardEditor(ctx) }
+    ],
+    el
+  };
+}
+
+/* ---------- construtores de cada bloco ---------- */
+function widgetConsultor(aq, ctx) {
+  return h('div', { class: 'card press', onclick: () => ctx.nav('consultor') },
     h('div', { class: 'card-head' },
       h('div', { class: 'badge-ic' }, icon('bulb', 'ic ic-sm')),
       h('div', { style: { flex: '1' } },
@@ -73,9 +116,10 @@ export default function dashboard(ctx) {
       ),
       h('span', { class: 'chev' }, icon('chev', 'ic ic-sm'))
     )
-  ));
+  );
+}
 
-  /* ---- parâmetros ---- */
+function widgetParametros(aq, ctx) {
   const pcard = h('div', { class: 'card' });
   pcard.appendChild(cardHead('flask', 'Parâmetros', null,
     h('button', { class: 'tb-btn', 'aria-label': 'Metas', onclick: () => ctx.nav('parametros/metas') }, icon('sliders', 'ic ic-sm'))));
@@ -84,9 +128,10 @@ export default function dashboard(ctx) {
   pcard.appendChild(h('div', { class: 'card-body' }, grid,
     h('button', { class: 'btn ghost', style: { marginTop: '12px' }, onclick: () => openTestSheet(aq, ctx.refresh) }, icon('plus', 'ic ic-sm'), 'Registrar medição')
   ));
-  el.appendChild(pcard);
+  return pcard;
+}
 
-  /* ---- ciclagem ---- */
+function widgetCiclagem(aq, ctx) {
   const cyc = cyclingStatus(aq);
   const gate = canAddFish(aq);
   const ccard = h('div', { class: 'card' });
@@ -108,9 +153,10 @@ export default function dashboard(ctx) {
       )
     )
   ));
-  el.appendChild(ccard);
+  return ccard;
+}
 
-  /* ---- tarefas de hoje ---- */
+function widgetTarefas(aq, ctx) {
   const todays = todayTasks(aq);
   const doneN = todays.filter((t) => t.done).length;
   const tcard = h('div', { class: 'card' });
@@ -129,9 +175,11 @@ export default function dashboard(ctx) {
       right: t.skipped ? pill(null, 'Pulada') : pill(t.done ? 'ok' : null, t.done ? 'Feita' : 'Pendente')
     })
   ));
-  el.appendChild(tcard);
+  return tcard;
+}
 
-  /* ---- fauna / carga ---- */
+function widgetFauna(aq, ctx) {
+  const bl = bioload(aq);
   const fcard = h('div', { class: 'card' });
   fcard.appendChild(cardHead('fish', 'Fauna e carga biológica', () => ctx.nav('fauna')));
   fcard.appendChild(h('div', { class: 'card-body' },
@@ -143,16 +191,18 @@ export default function dashboard(ctx) {
       h('div', { style: { height: '100%', width: Math.min(100, bl.pct) + '%', background: bl.pct > 100 ? 'var(--bad)' : bl.pct > 80 ? 'var(--warn)' : 'var(--ok)' } })),
     h('div', { class: 'note', style: { marginTop: '8px' }, text: `Estimativa conservadora para ${bl.vol} L úteis. Não substitui observação: comportamento e parâmetros mandam mais que a conta.` })
   ));
-  el.appendChild(fcard);
+  return fcard;
+}
 
-  /* ---- plantas ---- */
+function widgetPlantas(aq, ctx) {
   const plcard = h('div', { class: 'card' });
   plcard.appendChild(cardHead('leaf', `Plantas (${(aq.plants || []).length})`, () => ctx.nav('plantas')));
   if (!(aq.plants || []).length) plcard.appendChild(h('div', { class: 'card-body' }, h('div', { class: 'note', text: 'Nenhuma planta registrada.' })));
   else (aq.plants || []).slice(0, 3).forEach((p) => plcard.appendChild(row(`${p.qty}× ${p.species}`, p.loc || '', { right: pill(condStatus(p.cond), condName(p.cond)) })));
-  el.appendChild(plcard);
+  return plcard;
+}
 
-  /* ---- manutenção / próximos ---- */
+function widgetManutencao(aq, ctx) {
   const nt = nextTestDue(aq);
   const lastTpa = (aq.tpas || [])[0];
   const tp = tpaDue(aq);
@@ -168,9 +218,10 @@ export default function dashboard(ctx) {
   }));
   mcard.appendChild(row('Última TPA', lastTpa ? `${fmtNum(lastTpa.pct, 0)}% · ${fmtNum(lastTpa.liters, 1)} L · ${relDay(lastTpa.at)}` : 'nenhuma registrada', { onClick: () => ctx.nav('tpa') }));
   mcard.appendChild(row('Última dosagem', (aq.dosings || [])[0] ? `${relDay(aq.dosings[0].at)}` : 'nenhuma registrada', { onClick: () => ctx.nav('dosagens') }));
-  el.appendChild(mcard);
+  return mcard;
+}
 
-  /* ---- diário ---- */
+function widgetDiario(aq, ctx) {
   const dcard = h('div', { class: 'card' });
   dcard.appendChild(cardHead('book', 'Diário', () => ctx.nav('diario')));
   if (!(aq.notes || []).length) {
@@ -179,25 +230,82 @@ export default function dashboard(ctx) {
       h('button', { class: 'btn', onclick: () => openNoteSheet(aq, ctx.refresh) }, icon('plus', 'ic ic-sm'), 'Adicionar nota')
     ));
   } else (aq.notes || []).slice(0, 3).forEach((n) => dcard.appendChild(row(n.text.slice(0, 70) + (n.text.length > 70 ? '…' : ''), fmtDate(n.at), { right: n.kind === 'ocorrencia' ? pill('warn', 'Ocorrência') : null })));
-  el.appendChild(dcard);
+  return dcard;
+}
 
-  el.appendChild(h('div', { style: { height: '10px' } }));
-  el.appendChild(h('button', { class: 'btn sec', onclick: () => ctx.nav('historico') }, icon('chart', 'ic ic-sm'), 'Histórico e gráficos'));
+const WIDGET_BUILD = {
+  consultor: widgetConsultor,
+  parametros: widgetParametros,
+  ciclagem: widgetCiclagem,
+  tarefas: widgetTarefas,
+  fauna: widgetFauna,
+  plantas: widgetPlantas,
+  manutencao: widgetManutencao,
+  diario: widgetDiario
+};
 
-  return {
-    title: aq.name,
-    actions: [
-      { icon: 'edit', label: 'Editar aquário', on: () => ctx.nav('aquarios/editar/' + aq.id) }
-    ],
-    el
+/* ---------- editor de layout do painel ---------- */
+export function openDashboardEditor(ctx) {
+  const layout = widgetLayout();
+  let list = [...layout.order];
+  let hid = new Set(layout.hidden);
+  const listEl = h('div', { class: 'card' });
+
+  const render = () => {
+    listEl.innerHTML = '';
+    list.forEach((id, i) => {
+      const def = WIDGET_DEFS.find((w) => w.id === id);
+      if (!def) return;
+      const on = !hid.has(id);
+      listEl.appendChild(h('div', { class: 'card-row' },
+        h('span', { style: { color: on ? 'var(--accent)' : 'var(--tx-3)', flex: '0 0 auto' } }, icon(def.icon, 'ic ic-sm')),
+        h('div', { class: 'row-main' }, h('div', { class: 'row-title', style: on ? {} : { color: 'var(--tx-3)' }, text: def.label })),
+        h('button', {
+          class: 'tb-btn', style: { width: '30px', height: '30px', opacity: i === 0 ? '.35' : '1' }, 'aria-label': 'Mover para cima', disabled: i === 0,
+          onclick: () => { [list[i - 1], list[i]] = [list[i], list[i - 1]]; render(); }
+        }, icon('up', 'ic ic-sm')),
+        h('button', {
+          class: 'tb-btn', style: { width: '30px', height: '30px', opacity: i === list.length - 1 ? '.35' : '1' }, 'aria-label': 'Mover para baixo', disabled: i === list.length - 1,
+          onclick: () => { [list[i + 1], list[i]] = [list[i], list[i + 1]]; render(); }
+        }, icon('down', 'ic ic-sm')),
+        switchBtn(on, (v) => { if (v) hid.delete(id); else hid.add(id); render(); })
+      ));
+    });
   };
+
+  return sheet({
+    title: 'Personalizar painel',
+    big: true,
+    body: (b) => {
+      b.appendChild(h('div', { class: 'note', style: { marginBottom: '12px' } },
+        'Escolha o que aparece no painel do Aquário e em que ordem — use as flechas para mover e o interruptor para mostrar/ocultar. Foto, nome e os alertas de segurança sempre ficam fixos no topo.'));
+      render();
+      b.appendChild(listEl);
+    },
+    actions: (close) => h('div', { class: 'btn-row', style: { paddingTop: '6px' } },
+      h('button', {
+        class: 'btn sec', text: 'Restaurar padrão', onclick: () => { list = [...WIDGET_IDS]; hid = new Set(); render(); }
+      }),
+      h('button', {
+        class: 'btn', text: 'Salvar', onclick: () => {
+          state.settings.dashboardWidgets = { order: list, hidden: [...hid] };
+          save({ immediate: true });
+          close();
+          toast('Painel atualizado', 'ok');
+          ctx.refresh();
+        }
+      })
+    )
+  });
 }
 
 /* ---------- helpers exportados ---------- */
 
 /** Ações de registro rápido, usadas no botão + flutuante. */
 export function quickActions(aq, ctx) {
-  return [
+  const acts = [];
+  if (!aq.cycling?.done) acts.push(['refresh', 'Ciclagem', () => ctx.nav('ciclagem')]);
+  acts.push(
     ['flask', 'Teste de água', () => openTestSheet(aq, ctx.refresh)],
     ['drop', 'TPA', () => openTPASheet(aq, ctx.refresh)],
     ['box', 'Dosagem', () => openDoseSheet(aq, ctx.refresh)],
@@ -206,7 +314,8 @@ export function quickActions(aq, ctx) {
     ['leaf', 'Planta', () => ctx.nav('plantas/nova')],
     ['book', 'Nota', () => openNoteSheet(aq, ctx.refresh)],
     ['alert', 'Ocorrência', () => openNoteSheet(aq, ctx.refresh, 'ocorrencia')]
-  ].map(([icon, label, on]) => ({ icon, label, on }));
+  );
+  return acts.map(([icon, label, on]) => ({ icon, label, on }));
 }
 
 export function paramTile(aq, k, onClick) {
@@ -304,6 +413,17 @@ export function skipTask(aq, taskId) {
   aq.taskLog.unshift({ taskId, at: new Date().toISOString(), skipped: true });
   if (aq.taskLog.length > 800) aq.taskLog.length = 800;
   save();
+}
+
+/** Fecha um alerta do painel. A assinatura (título + descrição) muda sozinha
+ *  quando a situação muda — se ainda for verdade depois, o alerta reaparece. */
+export function dismissAlert(aq, a, ctx) {
+  aq.dismissedAlerts = aq.dismissedAlerts || [];
+  const sig = alertSig(a);
+  if (!aq.dismissedAlerts.includes(sig)) aq.dismissedAlerts.unshift(sig);
+  if (aq.dismissedAlerts.length > 100) aq.dismissedAlerts.length = 100;
+  save({ immediate: true });
+  ctx.refresh();
 }
 
 export const condName = (c) => ({ adapt: 'Em adaptação', ok: 'Saudável', melt: 'Melt', poda: 'Precisa poda', ruim: 'Deteriorando' }[c] || c);

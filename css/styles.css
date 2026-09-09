@@ -142,6 +142,9 @@ a{color:var(--accent)}
 .alert.bad{background:rgba(255,69,58,.11);border-color:rgba(255,69,58,.34);color:#ff8b83}
 .alert.info{background:var(--accent-soft);border-color:rgba(26,127,240,.32);color:#6ab0f7}
 .alert-t + .alert-d{margin-top:2px}
+.alert-x{flex:0 0 auto;width:24px;height:24px;display:grid;place-items:center;color:inherit;opacity:.6;border-radius:7px;margin:-3px -4px 0 0}
+.alert-x .ic{margin-top:0}
+.alert-x:active{opacity:1;background:rgba(255,255,255,.14)}
 
 /* buttons */
 .btn{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;padding:14px;border-radius:12px;background:var(--accent);color:#fff;font-weight:700;font-size:16px}

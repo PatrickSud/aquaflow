@@ -578,6 +578,14 @@ export function sameDay(iso, ref = new Date()) {
 }
 
 /* ---------------- alertas ---------------- */
+/** Assinatura estável de um alerta (título + descrição). Usada para lembrar
+ *  quais o usuário já fechou no painel — muda sozinha quando o texto muda
+ *  (nova medição, data diferente etc.), então um alerta fechado "hoje" volta
+ *  a aparecer se a mesma situação ainda existir depois. */
+export function alertSig(a) {
+  return `${a.t}::${a.d || ''}`;
+}
+
 export function alerts(aq) {
   const out = [];
   const add = (s, t, d) => out.push({ s, t, d });

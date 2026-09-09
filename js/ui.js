@@ -278,14 +278,15 @@ export function pill(status, label) {
   return h('span', { class: 'pill ' + cls }, h('i', { class: 'dot' }), h('span', { text: label }));
 }
 
-export function alertBox(a) {
+export function alertBox(a, onDismiss) {
   const ic = a.s === 'ok' ? 'checkCircle' : a.s === 'bad' ? 'alert' : a.s === 'warn' ? 'alert' : 'info';
   return h('div', { class: 'alert ' + (a.s || 'info') },
     icon(ic, 'ic'),
     h('div', { style: { flex: '1', minWidth: '0' } },
       h('div', { class: 'alert-t', text: a.t }),
       a.d ? h('div', { class: 'alert-d', text: a.d }) : null
-    )
+    ),
+    onDismiss ? h('button', { class: 'alert-x', 'aria-label': 'Fechar aviso', onclick: onDismiss }, icon('x', 'ic ic-sm')) : null
   );
 }
 

@@ -1,6 +1,6 @@
-﻿/* AquaFlow service worker â€” app shell offline-first.
-   Ao publicar uma nova versÃ£o, mude VERSION. */
-const VERSION = 'v1.2.1';
+/* AquaFlow service worker — app shell offline-first.
+   Ao publicar uma nova versão, mude VERSION (mantenha igual ao js/version.js). */
+const VERSION = 'v1.4.0';
 const SHELL = `aquaflow-shell-${VERSION}`;
 
 const ASSETS = [
@@ -9,6 +9,7 @@ const ASSETS = [
   './manifest.webmanifest',
   './css/styles.css',
   './js/app.js',
+  './js/version.js',
   './js/store.js',
   './js/model.js',
   './js/engine.js',

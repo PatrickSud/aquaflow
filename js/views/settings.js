@@ -10,8 +10,7 @@ import { fmtNum, fmtDate, relDay, ageDays } from '../engine.js';
 import { env, isInstalled, promptInstall, canOfferInstall } from '../pwa.js';
 import { openAIConfig } from './consultor.js';
 import * as cloud from '../cloud.js';
-
-const APP_VERSION = '1.0.0';
+import { APP_VERSION } from '../version.js';
 
 export default function settings(ctx) {
   const aq = ctx.aq;

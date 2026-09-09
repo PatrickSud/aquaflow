@@ -202,6 +202,7 @@ export function newAquarium(over = {}) {
     notes: [],
     events: [],
     chat: [],
+    dismissedAlerts: [],
     stocking: { plan: [], intervalDays: 8 }
   }, over);
 }
