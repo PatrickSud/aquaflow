@@ -1,0 +1,11 @@
+{
+  "//": "Desliga o índice do campo que guarda a foto em base64. Indexar uma string de centenas de KB só gasta espaço e não serve para nada — nunca vamos filtrar ou ordenar por ela. Opcional: se você não usar sincronização de fotos, pode ignorar este arquivo.",
+  "indexes": [],
+  "fieldOverrides": [
+    {
+      "collectionGroup": "photos",
+      "fieldPath": "data",
+      "indexes": []
+    }
+  ]
+}

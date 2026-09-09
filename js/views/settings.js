@@ -6,9 +6,10 @@ import {
 } from '../ui.js';
 import { state, save, exportJSON, importJSON, storageInfo } from '../store.js';
 import { aiReady, AI_PROVIDERS } from '../ai.js';
-import { fmtNum, fmtDate, ageDays } from '../engine.js';
+import { fmtNum, fmtDate, relDay, ageDays } from '../engine.js';
 import { env, isInstalled, promptInstall, canOfferInstall } from '../pwa.js';
 import { openAIConfig } from './consultor.js';
+import * as cloud from '../cloud.js';
 
 const APP_VERSION = '1.0.0';
 
@@ -38,6 +39,24 @@ export default function settings(ctx) {
   c2.appendChild(row('Diário', `${(aq?.notes || []).length} nota(s)`, { onClick: () => ctx.nav('diario'), left: icon('book', 'ic') }));
   c2.appendChild(row('Histórico e gráficos', `${(aq?.tests || []).length} medição(ões)`, { onClick: () => ctx.nav('historico'), left: icon('chart', 'ic') }));
   el.appendChild(c2);
+
+  /* conta e nuvem */
+  el.appendChild(h('div', { class: 'sec-title', text: 'Conta e nuvem' }));
+  const cacc = h('div', { class: 'card' });
+  const cu = cloud.status.user;
+  const pend = cu ? cloud.pendingCount() : 0;
+  cacc.appendChild(row(
+    cu ? cu.email : cloud.isConfigured() ? 'Entrar com e-mail e senha' : 'Ativar login e nuvem',
+    cu
+      ? (pend ? `${pend} registro(s) aguardando envio` : cloud.status.lastSync ? `sincronizado ${relDay(cloud.status.lastSync)}` : 'conectado')
+      : cloud.isConfigured() ? 'sincronize entre celular e computador' : 'os dados estão só neste aparelho',
+    {
+      left: icon('user', 'ic'),
+      right: cu ? pill(pend ? 'warn' : 'ok', pend ? 'Pendente' : 'Em dia') : null,
+      onClick: () => ctx.nav('conta')
+    }
+  ));
+  el.appendChild(cacc);
 
   /* consultor */
   el.appendChild(h('div', { class: 'sec-title', text: 'Consultor' }));

@@ -1,6 +1,6 @@
 /* AquaFlow service worker — app shell offline-first.
    Ao publicar uma nova versão, mude VERSION. */
-const VERSION = 'v1.0.0';
+const VERSION = 'v1.1.1';
 const SHELL = `aquaflow-shell-${VERSION}`;
 
 const ASSETS = [
@@ -16,6 +16,8 @@ const ASSETS = [
   './js/charts.js',
   './js/pwa.js',
   './js/ai.js',
+  './js/cloud.js',
+  './js/firebase-config.js',
   './js/views/dashboard.js',
   './js/views/params.js',
   './js/views/tasks.js',
@@ -27,6 +29,7 @@ const ASSETS = [
   './js/views/history.js',
   './js/views/cycling.js',
   './js/views/logs.js',
+  './js/views/account.js',
   './icons/icon-192.png',
   './icons/icon-512.png',
   './icons/icon-maskable-512.png',

@@ -57,7 +57,7 @@ Esse é o endereço que você abre no celular. Guarde-o.
 Toda vez que eu (ou você) mudar algum arquivo:
 
 1. Suba os arquivos alterados no GitHub (**Add file → Upload files** novamente, ele sobrescreve).
-2. **Importante:** abra o `sw.js` e mude a linha `const VERSION = 'v1.0.0';` para `'v1.0.1'`, `'v1.0.2'` e assim por diante.
+2. **Importante:** abra o `sw.js` e aumente a linha `const VERSION = ...`. A versão atual é **`'v1.1.1'`** — na próxima alteração passe para `'v1.1.2'`, depois `'v1.1.3'`, e assim por diante.
 
 Sem trocar essa versão, o celular pode continuar servindo a versão antiga guardada em cache. Com a versão trocada, o app detecta sozinho e mostra o aviso **"Nova versão disponível → Atualizar"**.
 
@@ -108,9 +108,14 @@ Esse último passo existe por um motivo: os nomes dos modelos do Google mudam co
 
 ## 5. Backup — leia isto
 
-**Não existe servidor nem conta.** Todos os seus registros ficam guardados no navegador do celular. Isso é ótimo para privacidade e custo, e tem um preço: se você limpar os dados do navegador, desinstalar o app ou trocar de aparelho, **os dados vão embora**.
+Mesmo com a nuvem ligada (seção 10), **sincronizar não é backup**. São coisas diferentes:
 
-Vá em **Ajustes → Exportar backup completo**. Sai um arquivo `.json` com tudo, inclusive as fotos. Guarde no Google Drive.
+- **Sincronizar** mantém os aparelhos iguais. Se você apagar um registro por engano no celular, ele é apagado no computador também.
+- **Backup** é uma foto congelada no tempo, que a sincronização não alcança.
+
+E se você **não** ligar a nuvem, os registros ficam apenas no navegador deste aparelho: limpar os dados do navegador, desinstalar o app ou trocar de celular apaga tudo.
+
+Nos dois casos, a rede de segurança é a mesma: **Ajustes → Exportar backup completo**. Sai um arquivo `.json` com tudo, inclusive as fotos. Guarde no Google Drive.
 
 Faça isso de vez em quando — e obrigatoriamente antes de trocar de celular. Para restaurar: **Ajustes → Restaurar backup**.
 
@@ -118,30 +123,23 @@ Em **Ajustes → Histórico → Exportar medições (CSV)** você também tira u
 
 ---
 
-## 6. Firebase — quando vale e quando não
+## 6. Firebase — o que está configurado
 
-**Hoje você não precisa de Firebase.** Ele resolve um problema que você ainda não tem: sincronizar os mesmos dados entre vários aparelhos, ou várias pessoas cuidando do mesmo aquário. Enquanto for você, num celular, o armazenamento local é mais rápido, funciona offline de verdade e não custa nada.
+**Já está pronto.** O arquivo `js/firebase-config.js` aponta para o projeto **`aquaflow-27258`**. O passo a passo de criar a conta e sincronizar está na **seção 10**.
 
-Se e quando quiser sincronização, o que é preciso saber (verificado em setembro de 2026):
+O que é útil saber (verificado em setembro de 2026):
 
-- **Plano Spark (gratuito, sem cartão):** Firestore com 1 GiB, 50 mil leituras e 20 mil escritas por dia; Authentication com e-mail/senha e Google incluídos. Mais que suficiente.
-- **Cuidado com uma mudança recente:** desde **3 de fevereiro de 2026** o Cloud Storage do Firebase exige o plano **Blaze com cartão cadastrado**, mesmo sem gastar nada. Projetos no Spark recebem erro 402/403. É exatamente por isso que as fotos do app ficam guardadas no aparelho, e não no Firebase.
-- **Hospedagem:** o Firebase Hosting gratuito dá 10 GB de armazenamento, mas o limite de tráfego na tabela do plano é de **360 MB por dia** — bem mais apertado que o GitHub Pages. E o Firebase Hosting não tem upload pelo painel: exige a ferramenta de linha de comando. Por isso a recomendação é GitHub Pages.
-- **Se usar Authentication com o site no GitHub Pages:** cadastre `SEU_USUARIO.github.io` (só o domínio, sem `/aquaflow`) em **Authentication → Settings → Authorized domains**, e use `signInWithPopup()` — o método de redirecionamento quebra em hospedagem de terceiros por causa do bloqueio de cookies.
-- **Regras do Firestore** para cada pessoa ver só os próprios dados:
+- **Plano Spark (gratuito, sem cartão):** Firestore com 1 GiB, 50 mil leituras e 20 mil escritas por dia; Authentication com e-mail/senha incluído, até 50 mil usuários por mês. Muito acima do que você vai usar.
+- **Sem cartão cadastrado não existe cobrança possível.** Se algum dia estourar a cota diária, o serviço simplesmente para até a virada do dia.
+- **A configuração no arquivo não é segredo.** O Firebase publica esses valores no navegador de propósito — é assim que o SDK sabe com qual projeto falar. Pode ir para repositório público. **O que protege os dados são as Regras de Segurança** (seção 10.5). Sem publicá-las, o banco fica aberto.
+- **Opcional, se quiser blindar mais:** no [Google Cloud Console → APIs e serviços → Credenciais](https://console.cloud.google.com/apis/credentials), você pode restringir a chave da API para aceitar chamadas apenas do seu domínio (`SEU_USUARIO.github.io`). Não é obrigatório; serve para evitar que alguém use sua cota.
+- **Cloud Storage não é usado.** Desde **3 de fevereiro de 2026** ele exige o plano **Blaze com cartão**, mesmo sem gastar nada — projetos no Spark recebem erro 402/403. Por isso as fotos ficam no aparelho e, quando sincronizadas, vão dentro do próprio banco.
+- **Hospedagem continua no GitHub Pages.** O Firebase Hosting gratuito dá 10 GB de armazenamento mas só **360 MB de tráfego por dia**, e não tem upload pelo painel — exige linha de comando. GitHub Pages é melhor nos dois pontos.
+- **Login em site fora do Firebase:** é obrigatório cadastrar `SEU_USUARIO.github.io` (só o domínio, sem `/aquaflow`) em **Authentication → Settings → Authorized domains**. Sem isso o login falha com "domínio não autorizado".
 
-```
-rules_version = '2';
-service cloud.firestore {
-  match /databases/{database}/documents {
-    match /users/{uid}/{document=**} {
-      allow read, write: if request.auth != null && request.auth.uid == uid;
-    }
-  }
-}
-```
+As regras a publicar estão prontas no arquivo `firestore.rules` deste projeto — basta trocar o e-mail. Elas exigem três coisas ao mesmo tempo: estar autenticado, acessar apenas a própria pasta, e ter e-mail **confirmado e na lista**.
 
-O `firebaseConfig` que aparece no painel é público por natureza — não é segredo. O que protege os dados são essas regras.
+> Atenção: **não** use a versão simplificada que circula em tutoriais, com apenas `request.auth.uid == uid`. Ela protege um usuário do outro, mas deixa **qualquer pessoa que crie uma conta** no seu projeto usar o seu banco livremente. Como no plano gratuito não há como impedir cadastro, a lista de e-mails é o que fecha essa porta.
 
 ---
 
@@ -161,7 +159,7 @@ Para o seu caso, GitHub Pages resolve. Cloudflare Pages é a segunda melhor opç
 ## 8. O que o app não faz (e é bom você saber)
 
 - **Notificações com o app fechado não funcionam.** Isso exigiria um servidor enviando as mensagens. O que existe é um aviso das tarefas do dia enquanto o app está aberto, que você liga em Ajustes. No iPhone, notificação de web app só funciona depois de instalado na tela de início.
-- **Não há login nem sincronização.** Um aparelho, um conjunto de dados. É o que o passo 5 resolve com backup manual.
+- **A conversa do Consultor e a marcação de tarefas do dia não sincronizam.** São informações do momento, de cada aparelho. Todo o resto sincroniza (ver seção 10).
 - **As dosagens são calculadas a partir da regra do rótulo** (Prime 5 mL para 200 L de água nova; Stability 5 mL para 40 L no primeiro dia e 5 mL para 80 L depois). O app deixa claro quando o valor é estimado. **Confirme a concentração no seu frasco** — fabricante muda fórmula.
 - **O app não substitui observação.** A carga biológica é uma estimativa conservadora; comportamento dos animais e parâmetros medidos valem mais que qualquer conta.
 
@@ -181,3 +179,98 @@ Estão no código **e** no prompt enviado à IA — valem nos dois modos. Você 
 8. Betta exige fluxo brando e é o último a entrar.
 9. **Nunca inventa dado que falta.** Se falta medição, ele diz qual e pede.
 10. Toda análise termina com uma pergunta objetiva, nunca com "posso ajudar em mais alguma coisa?".
+
+---
+
+## 10. Login e nuvem (passo a passo)
+
+O app funciona 100% sem isto. Só faça se quiser entrar com e-mail e senha e ter os dados sincronizados entre celular e computador. **Não pede cartão de crédito.**
+
+### 10.1 Criar o projeto (uma vez)
+
+1. Acesse [console.firebase.google.com](https://console.firebase.google.com) e entre com uma conta Google.
+2. **Criar um projeto** → nome: `aquaflow`.
+3. O **ID do projeto** que ele mostra **não pode ser alterado depois**. Confira e siga.
+4. Google Analytics: **pode desativar**, não é necessário.
+5. Clique em **Criar projeto** e aguarde.
+
+### 10.2 Registrar o app da Web
+
+1. Na visão geral do projeto, clique no ícone **`</>`** (Web).
+2. Apelido: `AquaFlow`. **Não** marque Firebase Hosting (você já usa GitHub Pages).
+3. **Registrar app**. Ele mostra um bloco começando com `apiKey`. **Deixe essa aba aberta.**
+
+### 10.3 Ligar o login por e-mail e senha
+
+1. Menu à esquerda → **Criação** (ou *Build*) → **Authentication** → **Vamos começar**.
+2. Aba **Sign-in method** → **E-mail/senha** → ative a primeira chave → **Salvar**.
+3. Aba **Settings** → **Domínios autorizados** → **Adicionar domínio** → digite **apenas** `SEU_USUARIO.github.io` (sem `/aquaflow`, sem `https://`).
+
+Sem o passo 3, o login falha com "domínio não autorizado".
+
+### 10.4 Criar o banco de dados
+
+1. Menu → **Firestore Database** → **Criar banco de dados**.
+2. Local: **`southamerica-east1` (São Paulo)** — mais perto, mais rápido. **O local é permanente.**
+3. Escolha **Modo de produção** (nunca modo de teste: modo de teste deixa qualquer pessoa ler e apagar seus dados).
+4. Criar.
+
+### 10.5 Publicar as regras de segurança — não pule
+
+1. Abra o arquivo [firestore.rules](C:/Claude/AquaFlow/firestore.rules) deste projeto.
+2. Troque `troque-pelo-seu@email.com` pelo e-mail que você vai usar para entrar.
+3. No console: **Firestore Database** → aba **Regras** → apague tudo → cole → **Publicar**.
+
+**Por que isso importa:** seu repositório é público, então a configuração do Firebase é visível. Isso é normal e esperado — o Firebase publica esses valores no navegador de propósito. No plano gratuito **não existe** forma de impedir que um estranho crie uma conta no seu projeto (bloquear cadastro exige Cloud Functions, que só rodam no plano pago). Estas regras resolvem pelo outro lado: a pessoa consegue criar a conta, mas não lê nem grava **nada** se o e-mail não estiver na lista **e** confirmado. É a proteção certa e disponível no gratuito.
+
+### 10.6 Configuração no app — já feito
+
+O arquivo [js/firebase-config.js](C:/Claude/AquaFlow/js/firebase-config.js) já está preenchido com o projeto `aquaflow-27258`, e a versão do `sw.js` já foi para `v1.1.1`. Nada a fazer aqui — basta publicar no GitHub.
+
+Se um dia precisar trocar de projeto: ou edita esse arquivo, ou usa **Ajustes → Conta e nuvem → Colar configuração do Firebase** (que vale só no aparelho onde você colar, útil para testar antes de publicar).
+
+### 10.7 Criar sua conta e escolher a direção
+
+1. No app: **Ajustes → Conta e nuvem → Criar conta**.
+2. Confirme o e-mail — **as regras exigem e-mail confirmado**. A mensagem vem de um endereço automático do Google, então **olhe o spam**.
+3. Depois de entrar, o app pergunta o que fazer. Ele **nunca** decide sozinho:
+   - **Enviar o que está neste aparelho** → primeira vez, com os dados no celular.
+   - **Baixar o que já está na nuvem** → aparelho novo.
+
+### 10.8 Como a sincronização funciona
+
+- **O aparelho continua sendo a fonte da verdade.** Sem internet, o app funciona igual; sincroniza quando a conexão volta.
+- Envia automaticamente alguns segundos depois de você registrar algo, e ao abrir o app.
+- Cada medição é **um registro próprio** na nuvem, não um arquivão. Registrar uma medição custa **uma** gravação, independente de quantos anos de histórico já existam.
+- **Exclusão viaja.** Se você apaga uma medição no celular, ela não volta do computador.
+- **Horário é o do servidor, não o do celular.** Se o relógio do aparelho estivesse adiantado, um registro feito noutro aparelho ficaria para trás do marcador de leitura e seria perdido — sem erro nenhum aparecendo. Usando o horário do servidor, todos comparam a mesma régua.
+- **Fotos não sincronizam por padrão.** Você liga em **Conta → Sincronizar fotos**. Fica desligado porque foto consome muito mais dados que texto: 200 fotos são cerca de 76 MB, e a cota gratuita de saída é 10 GB por mês.
+
+### 10.9 Quanto isso consome do plano gratuito
+
+Cota diária gratuita: 50.000 leituras, 20.000 gravações, 1 GiB armazenado.
+
+Na prática, com 5 aquários e abrindo o app 30 vezes por dia, dá cerca de 1.200 leituras — **2,4% da cota**. Registrar uma medição é 1 gravação. Você não chega perto do limite.
+
+E se chegar: no plano gratuito **o serviço simplesmente para até o dia seguinte, não gera cobrança**. Sem cartão cadastrado, não existe conta para pagar.
+
+### 10.10 Se algo der errado
+
+| Mensagem | O que fazer |
+|---|---|
+| "E-mail ou senha incorretos" | O Firebase **não distingue** senha errada de e-mail inexistente (proteção contra descobrir quais e-mails existem). Use "Esqueci minha senha". |
+| "domínio não autorizado" | Falta o passo 10.3 — adicione `SEU_USUARIO.github.io` nos domínios autorizados. |
+| "as regras do Firestore recusaram o acesso" | Confirme o e-mail e verifique se ele está na lista do `firestore.rules`, exatamente igual. |
+| "login por e-mail e senha não está habilitado" | Falta o passo 10.3, primeira parte. |
+| "Firestore ainda não foi criado" | Falta o passo 10.4. |
+| Não chegou e-mail de confirmação | Olhe o spam. O remetente é automático do Google e cai em spam com frequência. |
+
+### 10.11 Por que Firebase e não Supabase
+
+Consideramos as duas. O Supabase tem vantagens reais (Postgres, código aberto), mas **pausa projetos gratuitos após 7 dias sem atividade** e o plano gratuito **não tem backup**. Para um app de aquário que você pode não abrir por duas semanas, isso significa chegar e encontrar tela em branco. O Firebase não pausa. Foi o que decidiu.
+
+O que o Firebase **não** resolve de graça: guardar arquivos no Cloud Storage passou a exigir cartão desde 3 de fevereiro de 2026. É por isso que as fotos ficam no aparelho, e quando sincronizadas vão dentro do próprio banco.
+
+### 10.12 O backup manual continua importante
+
+Sincronizar não é backup. Se você apagar um registro por engano, ele é apagado nos dois lados. **Ajustes → Exportar backup completo** continua sendo sua rede de segurança.

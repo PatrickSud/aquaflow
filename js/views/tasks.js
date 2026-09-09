@@ -1,7 +1,7 @@
 /* views/tasks.js — checklists de manutenção diária, semanal e mensal. */
 
 import { h, icon, cardHead, row, pill, sheet, toast, field, input, select, segmented, empty, switchBtn, confirmSheet } from '../ui.js';
-import { save, uid } from '../store.js';
+import { save, uid, touch, remove } from '../store.js';
 import { TASK_TPL, FREQ } from '../model.js';
 import { fmtDate, relDay } from '../engine.js';
 import { todayTasks, toggleTask } from './dashboard.js';
@@ -52,8 +52,8 @@ export default function tasks(ctx) {
       h('div', { class: 'row-main' },
         h('div', { class: 'row-title', text: t.title, style: t.on ? {} : { color: 'var(--tx-3)' } }),
         h('div', { class: 'row-sub', text: t.time ? `às ${t.time}` : FREQ[t.freq] })),
-      switchBtn(t.on, (v) => { t.on = v; save(); }),
-      h('button', { class: 'tb-btn', style: { width: '32px', height: '32px' }, 'aria-label': 'Excluir', onclick: () => confirmSheet({ title: 'Excluir tarefa?', message: t.title, confirmText: 'Excluir', danger: true, onConfirm: () => { const i = aq.tasks.indexOf(t); aq.tasks.splice(i, 1); save(); ctx.refresh(); } }) }, icon('trash', 'ic ic-sm'))
+      switchBtn(t.on, (v) => { t.on = v; touch(t); save(); }),
+      h('button', { class: 'tb-btn', style: { width: '32px', height: '32px' }, 'aria-label': 'Excluir', onclick: () => confirmSheet({ title: 'Excluir tarefa?', message: t.title, confirmText: 'Excluir', danger: true, onConfirm: async () => { await remove('tasks', t.id); ctx.refresh(); } }) }, icon('trash', 'ic ic-sm'))
     )));
     el.appendChild(c);
   });

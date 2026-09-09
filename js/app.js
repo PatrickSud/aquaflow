@@ -1,6 +1,6 @@
 /* app.js — inicialização, roteamento por hash e montagem das telas. */
 
-import { load, state, save, active } from './store.js';
+import { load, state, save, active, subscribe } from './store.js';
 import { h, icon, menuSheet, toast } from './ui.js';
 import { initPWA } from './pwa.js';
 
@@ -15,6 +15,8 @@ import aquariums, { aquariumForm } from './views/aquariums.js';
 import historyView from './views/history.js';
 import cycling from './views/cycling.js';
 import { tpaView, doseView, feedView, diaryView } from './views/logs.js';
+import account from './views/account.js';
+import * as cloud from './cloud.js';
 
 const TABS = ['parametros', 'tarefas', 'aquario', 'fauna', 'consultor'];
 const el = {};
@@ -85,6 +87,7 @@ function render() {
       case 'dosagens': view = doseView(ctx); break;
       case 'alimentacao': view = feedView(ctx); break;
       case 'diario': view = diaryView(ctx); break;
+      case 'conta': view = account(ctx); break;
       default: nav('aquario'); return;
     }
   } catch (err) {
@@ -132,7 +135,7 @@ function render() {
   /* abas */
   const tabRoute = TABS.includes(route) ? route
     : ['plantas', 'povoamento'].includes(route) ? (route === 'povoamento' ? 'fauna' : 'aquario')
-      : ['ciclagem', 'historico', 'tpa', 'dosagens', 'alimentacao', 'diario', 'aquarios'].includes(route) ? 'aquario' : route;
+      : ['ciclagem', 'historico', 'tpa', 'dosagens', 'alimentacao', 'diario', 'aquarios', 'conta'].includes(route) ? 'aquario' : route;
   [...el.tabbar.children].forEach((b) => {
     if (b.dataset.route === tabRoute) b.setAttribute('aria-current', 'page');
     else b.removeAttribute('aria-current');
@@ -183,6 +186,27 @@ async function boot() {
   window.addEventListener('hashchange', render);
 
   initPWA(() => { if (parseHash().route === 'aquario' || parseHash().route === 'ajustes') render(); });
+
+  // nuvem é opcional: se não houver configuração, nada disso acontece e o app segue igual
+  cloud.getConfig().then((cfg) => {
+    if (!cfg) return;
+    cloud.onChange(() => { const r = parseHash().route; if (r === 'conta' || r === 'ajustes') render(); });
+    cloud.start().catch((e) => console.warn('cloud', e));
+
+    // envio automático, com folga para não disparar a cada tecla digitada
+    let t = null;
+    subscribe(() => {
+      if (state.settings.autoSync === false) return;
+      if (!cloud.status.user || cloud.status.syncing) return;
+      clearTimeout(t);
+      t = setTimeout(() => {
+        if (navigator.onLine) cloud.syncNow({ quiet: true }).catch(() => {});
+      }, 8000);
+    });
+    window.addEventListener('online', () => {
+      if (cloud.status.user && state.settings.autoSync !== false) cloud.syncNow({ quiet: true }).catch(() => {});
+    });
+  });
 
   document.getElementById('splash').remove();
   el.topbar.hidden = false;

@@ -4,7 +4,7 @@ import {
   h, icon, cardHead, row, pill, sheet, toast, field, input, textarea, select, segmented,
   empty, kv, stepper, colorPicker, confirmSheet, menuSheet, todayLocal
 } from '../ui.js';
-import { save, uid, remove } from '../store.js';
+import { save, uid, remove, touch } from '../store.js';
 import { SPECIES, SPEC } from '../model.js';
 import {
   bioload, bioStatus, compatibility, riskLabel, canAddFish, fmtNum, fmtDate, relDay, num, ageDays
@@ -118,6 +118,7 @@ export function faunaForm(ctx, editId) {
       const c = compatibility(aq, d.spec, num(d.qty) || 1);
       const doSave = () => {
         aq.livestock = aq.livestock || [];
+        d.updatedAt = new Date().toISOString();
         if (existing) Object.assign(existing, d);
         else aq.livestock.unshift(Object.assign({}, d, { id: uid(), createdAt: new Date().toISOString() }));
         save({ immediate: true });
@@ -140,8 +141,8 @@ export function faunaForm(ctx, editId) {
     el.appendChild(h('div', { style: { height: '9px' } }));
     el.appendChild(h('button', {
       class: 'btn danger', onclick: () => menuSheet('Registrar saída', [
-        { icon: 'alert', label: 'Registrar óbito', on: () => { existing.status = 'obito'; existing.diedAt = new Date().toISOString(); save({ immediate: true }); toast('Óbito registrado. Teste amônia nas próximas 24 h.'); ctx.nav('fauna'); } },
-        { icon: 'up', label: 'Removido do aquário', on: () => { existing.status = 'removido'; existing.diedAt = new Date().toISOString(); save({ immediate: true }); ctx.nav('fauna'); } },
+        { icon: 'alert', label: 'Registrar óbito', on: () => { existing.status = 'obito'; existing.diedAt = new Date().toISOString(); touch(existing); save({ immediate: true }); toast('Óbito registrado. Teste amônia nas próximas 24 h.'); ctx.nav('fauna'); } },
+        { icon: 'up', label: 'Removido do aquário', on: () => { existing.status = 'removido'; existing.diedAt = new Date().toISOString(); touch(existing); save({ immediate: true }); ctx.nav('fauna'); } },
         { icon: 'trash', label: 'Excluir registro', danger: true, on: () => confirmSheet({ title: 'Excluir registro?', message: 'Some do histórico. Prefira "registrar óbito/removido" para manter o rastro.', confirmText: 'Excluir', danger: true, onConfirm: async () => { await remove('livestock', existing.id); ctx.nav('fauna'); } }) }
       ])
     }, 'Registrar saída / óbito'));

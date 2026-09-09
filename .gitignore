@@ -1,0 +1,12 @@
+# prints de referência do app original — não fazem parte do aplicativo
+referencias/
+
+# Regras do Firestore: contêm o seu e-mail e são coladas no console do Firebase,
+# não servidas pelo site. Manter fora do repositório público evita expor o e-mail.
+# O arquivo continua aqui no seu computador — é só de onde você copia.
+firestore.rules
+
+# lixo do sistema
+Thumbs.db
+desktop.ini
+.DS_Store

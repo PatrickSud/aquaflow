@@ -62,7 +62,11 @@ export const state = {
   settings: {
     ai: { provider: 'gemini', model: 'gemini-3.5-flash', key: '', endpoint: '', proxyUrl: '' },
     installDismissed: false,
-    lastSeen: null
+    lastSeen: null,
+    fbConfig: null,
+    syncPhotos: false,
+    autoSync: true,
+    sync: {}
   }
 };
 
@@ -85,7 +89,7 @@ export async function load() {
     const d = await tx(S_DOC, 'readonly', (s) => s.get('state'));
     if (d && typeof d === 'object') {
       Object.assign(state, d);
-      state.settings = Object.assign({ ai: {}, installDismissed: false, lastSeen: null }, d.settings || {});
+      state.settings = Object.assign({ ai: {}, installDismissed: false, lastSeen: null, fbConfig: null, syncPhotos: false, autoSync: true, sync: {} }, d.settings || {});
       state.settings.ai = Object.assign({ provider: 'gemini', model: 'gemini-3.5-flash', key: '', endpoint: '', proxyUrl: '' }, d.settings?.ai || {});
     }
   } catch (e) { console.error('load', e); }
@@ -124,7 +128,8 @@ export function push(coll, item) {
   const a = active();
   if (!a) return null;
   if (!Array.isArray(a[coll])) a[coll] = [];
-  const rec = Object.assign({ id: uid(), createdAt: nowISO() }, item);
+  const now = nowISO();
+  const rec = Object.assign({ id: uid(), createdAt: now, updatedAt: now }, item);
   a[coll].unshift(rec);
   if (rec.at) a[coll].sort((x, y) => new Date(y.at) - new Date(x.at));
   save();
@@ -137,9 +142,16 @@ export function update(coll, id, patch) {
   const it = a[coll].find((x) => x.id === id);
   if (!it) return null;
   Object.assign(it, patch);
+  it.updatedAt = nowISO();
   if (patch.at) a[coll].sort((x, y) => new Date(y.at) - new Date(x.at));
   save();
   return it;
+}
+
+/** Marca o registro como editado agora (para a sincronização notar a mudança). */
+export function touch(rec) {
+  if (rec) rec.updatedAt = nowISO();
+  return rec;
 }
 
 export async function remove(coll, id) {
@@ -150,6 +162,10 @@ export async function remove(coll, id) {
   const ph = a[coll][i].photo;
   if (ph) { forgetPhotoURL(ph); await delPhoto(ph); }
   a[coll].splice(i, 1);
+  // guarda a lápide: sem ela, o registro excluído aqui volta do outro aparelho
+  a.tombstones = a.tombstones || [];
+  a.tombstones.unshift({ coll, id, at: nowISO() });
+  if (a.tombstones.length > 500) a.tombstones.length = 500;
   await save({ immediate: true });
 }
 
