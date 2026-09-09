@@ -445,6 +445,125 @@ export function productGuard(aq, prodId) {
   return out;
 }
 
+/* ---------------- TPA programada ----------------
+   O calendário LEMBRA; os parâmetros DECIDEM. Nunca o contrário.
+   Uma tarefa "trocar água toda semana" seria exatamente o que a regra proíbe,
+   então o que vence no calendário é a AVALIAÇÃO, não a troca. */
+export function tpaDue(aq) {
+  const plan = Object.assign({ on: true, every: 10, pct: 20 }, aq.tpaPlan || {});
+  const last = (aq.tpas || [])[0];
+  const lastAt = last ? last.at : null;
+  const since = lastAt ? daysSince(lastAt) : null;
+  const days = since === null ? null : plan.every - since;
+  return {
+    plan,
+    lastAt,
+    daysSince: since,
+    due: !plan.on ? false : since === null ? true : since >= plan.every,
+    days,
+    label: !plan.on ? 'programa desligado'
+      : since === null ? 'nunca registrada'
+        : since >= plan.every ? 'vencida' : days === 1 ? 'amanhã' : `em ${days} dias`
+  };
+}
+
+/** Veredito de TPA a partir dos dados — a mesma lógica que o Consultor usa. */
+export function tpaVerdict(aq) {
+  const no3 = latest(aq, 'no3'), nh3 = latest(aq, 'nh3'), no2 = latest(aq, 'no2');
+  const cyc = cyclingStatus(aq);
+  const live = (aq.livestock || []).filter((x) => x.status !== 'obito' && x.status !== 'removido');
+  const R = { level: 'warn', title: '', reasons: [], missing: [] };
+
+  if (!no3) R.missing.push('nitrato');
+  if (!nh3) R.missing.push('amônia');
+  if (!no2) R.missing.push('nitrito');
+  if (R.missing.length) {
+    R.level = 'bad';
+    R.title = 'Não há dados suficientes para decidir';
+    R.reasons.push(`Faltam medições de: ${R.missing.join(', ')}. Não recomendo TPA só porque venceu o prazo.`);
+    return R;
+  }
+
+  const stale = daysSince(aq.tests[0].at);
+  if (stale > 4) {
+    R.level = 'bad';
+    R.title = 'Meça antes de trocar';
+    R.reasons.push(`A última medição foi ${relDay(aq.tests[0].at)}. Teste nitrato, amônia e nitrito hoje e a decisão sai na hora.`);
+    return R;
+  }
+
+  if (!cyc.done && (nh3.v > 0 || no2.v > 0)) {
+    if (live.length) {
+      R.level = 'ok';
+      R.title = 'TPA de socorro indicada';
+      R.reasons.push(`Há fauna no aquário com o ciclo incompleto (amônia ${fmtNum(nh3.v, 3)} / nitrito ${fmtNum(no2.v, 3)} ppm). Aqui a troca protege os animais e vem antes de preservar o ciclo.`);
+      return R;
+    }
+    R.level = 'bad';
+    R.title = 'Não trocar agora';
+    R.reasons.push(`O aquário está ciclando sem peixes (amônia ${fmtNum(nh3.v, 3)} / nitrito ${fmtNum(no2.v, 3)} ppm). Trocar água agora dilui a fonte de amônia e atrasa a colonização das bactérias.`);
+    return R;
+  }
+
+  if (no3.v > 40) {
+    R.level = 'ok';
+    R.title = 'TPA indicada';
+    R.reasons.push(`Nitrato em ${fmtNum(no3.v, 1)} ppm, acima de 40.`);
+  } else if (no3.v >= 20) {
+    R.level = 'warn';
+    R.title = 'TPA opcional';
+    R.reasons.push(`Nitrato em ${fmtNum(no3.v, 1)} ppm, zona de atenção (20–40). Trocar antecipa; esperar também é defensável.`);
+  } else {
+    R.level = 'warn';
+    R.title = 'Sem motivo de nitrato para trocar';
+    R.reasons.push(`Nitrato em ${fmtNum(no3.v, 1)} ppm, abaixo de 20. Se for trocar, que seja por outro motivo — sifão do fundo, reposição de minerais ou algo observado.`);
+  }
+
+  const tp = latest(aq, 'temp');
+  if (tp) R.reasons.push(`A água nova precisa entrar próxima de ${fmtNum(tp.v, 1)} °C e já condicionada.`);
+  return R;
+}
+
+/** Passo a passo de COMO fazer, com os números deste aquário. */
+export function tpaSteps(aq, pct) {
+  const p = pct ?? (aq.tpaPlan?.pct ?? 20);
+  const c = tpaCalc(aq, p);
+  const tp = latest(aq, 'temp');
+  return [
+    `Separe ${fmtNum(c.liters, 1)} L de água nova — ${p}% dos ${fmtNum(aq.volUtil, 0)} L úteis.`,
+    `Condicione a água nova com ${fmtNum(c.prime.ml, 2)} mL de Prime (cerca de ${c.prime.drops} gotas) e aguarde alguns minutos.`,
+    `Iguale a temperatura da água nova à do aquário${tp ? ` (hoje ${fmtNum(tp.v, 1)} °C)` : ''}. Diferença brusca estressa mais que a própria troca.`,
+    'Desligue o termostato e o filtro antes de baixar o nível.',
+    `Retire ${fmtNum(c.liters, 1)} L sifonando o fundo, onde a matéria orgânica acumula. Não mexa nas mídias biológicas.`,
+    'Reponha devagar, sem jato direto no substrato nem nas plantas.',
+    'Religue filtro e termostato e confira se o fluxo voltou brando.',
+    'Registre a TPA aqui no app — é o que alimenta o histórico e o próximo vencimento.'
+  ];
+}
+
+/** A cadência de dosagem que está valendo (protocolo Stability). */
+export function doseDue(aq) {
+  const prot = aq.protocols || {};
+  const cyc = cyclingStatus(aq);
+  if (!prot.stabilityDays) return { active: false, done: false, label: 'sem protocolo definido' };
+  const active = cyc.day <= prot.stabilityDays;
+  const todayDone = (aq.dosings || []).some((d) => d.prod === 'stability' && sameDay(d.at));
+  return {
+    active,
+    day: cyc.day,
+    total: prot.stabilityDays,
+    ml: prot.stabilityMl || stabilityDose(aq).ml,
+    done: todayDone,
+    label: !active ? 'protocolo concluído' : todayDone ? 'aplicado hoje' : `dia ${cyc.day} de ${prot.stabilityDays} — pendente`
+  };
+}
+
+export function sameDay(iso, ref = new Date()) {
+  if (!iso) return false;
+  const d = new Date(iso);
+  return d.getFullYear() === ref.getFullYear() && d.getMonth() === ref.getMonth() && d.getDate() === ref.getDate();
+}
+
 /* ---------------- alertas ---------------- */
 export function alerts(aq) {
   const out = [];
@@ -507,6 +626,18 @@ export function alerts(aq) {
     if (age >= prot.filterSwapDay) {
       add('info', 'Rever filtragem mecânica', `O aquário tem ${age} dias. Plano previsto: retirar o refil mecânico saturado, PRESERVAR as mídias biológicas e passar a usar perlon solto na entrada. Nunca substituir as mídias biológicas por completo.`);
     }
+  }
+
+  // TPA programada vencida — o lembrete vem SEMPRE acompanhado do veredito,
+  // nunca como uma ordem de trocar água por prazo
+  const tp = tpaDue(aq);
+  if (tp.due && tp.plan.on) {
+    const v = tpaVerdict(aq);
+    const liters = fmtNum(tpaCalc(aq, tp.plan.pct).liters, 1);
+    add(v.level === 'ok' ? 'warn' : 'info', 'TPA programada venceu',
+      `${tp.lastAt ? `Última troca ${relDay(tp.lastAt)}` : 'Nenhuma TPA registrada ainda'}; o programa é a cada ${tp.plan.every} dias. ` +
+      `Veredito pelos dados de hoje: ${v.title}. ${v.reasons[0] || ''} ` +
+      `Se for trocar, ${tp.plan.pct}% = ${liters} L de água nova.`);
   }
 
   // temperatura oscilando

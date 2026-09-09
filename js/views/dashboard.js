@@ -5,7 +5,8 @@ import { photoURL, state, save } from '../store.js';
 import { PARAMS, P, CORE, SPEC } from '../model.js';
 import {
   waterQuality, statusOf, statusLabel, latest, trend, trendText, cyclingStatus,
-  canAddFish, bioload, bioStatus, alerts, nextTestDue, fmtNum, fmtDate, relDay, ageDays, target
+  canAddFish, bioload, bioStatus, alerts, nextTestDue, fmtNum, fmtDate, relDay, ageDays, target,
+  tpaDue, tpaVerdict, doseDue, sameDay, num, tpaCalc
 } from '../engine.js';
 import { installBanner, canOfferInstall } from '../pwa.js';
 import { openTestSheet } from './params.js';
@@ -116,10 +117,14 @@ export default function dashboard(ctx) {
   tcard.appendChild(cardHead('clip', `Tarefas de hoje (${doneN}/${todays.length})`, () => ctx.nav('tarefas')));
   if (!todays.length) tcard.appendChild(h('div', { class: 'card-body' }, h('div', { class: 'note', text: 'Nenhuma tarefa ativa. Crie na aba Tarefas.' })));
   else todays.slice(0, 4).forEach((t) => tcard.appendChild(
-    row(t.title, t.time || 'sem horário', {
+    row(t.title, t.auto ? 'registrado hoje' : (t.time || 'sem horário'), {
       left: h('button', {
         class: 'chk', style: { padding: '0' }, 'aria-label': 'Concluir',
-        onclick: (e) => { e.stopPropagation(); toggleTask(aq, t.id); ctx.refresh(); }
+        onclick: (e) => {
+          e.stopPropagation();
+          if (t.auto) { toast('Já consta pelo registro de hoje'); return; }
+          toggleTask(aq, t.id); ctx.refresh();
+        }
       }, h('span', { class: 'box', style: t.done ? { background: 'var(--accent)', borderColor: 'var(--accent)', color: '#fff' } : {} }, t.done ? icon('check', 'ic ic-sm') : null)),
       right: pill(t.done ? 'ok' : null, t.done ? 'Feita' : 'Pendente')
     })
@@ -150,9 +155,17 @@ export default function dashboard(ctx) {
   /* ---- manutenção / próximos ---- */
   const nt = nextTestDue(aq);
   const lastTpa = (aq.tpas || [])[0];
+  const tp = tpaDue(aq);
+  const dd = doseDue(aq);
   const mcard = h('div', { class: 'card' });
-  mcard.appendChild(cardHead('timer', 'Manutenção', null));
+  mcard.appendChild(cardHead('timer', 'Manutenção', () => ctx.nav('tarefas')));
   mcard.appendChild(row('Próxima medição', nt.label, { right: pill(nt.due ? 'warn' : null, nt.due ? 'Agora' : 'Ok'), onClick: () => openTestSheet(aq, ctx.refresh) }));
+  mcard.appendChild(row('TPA programada',
+    tp.plan.on ? `${tp.plan.every} dias · ${tp.plan.pct}% (${fmtNum(tpaCalc(aq, tp.plan.pct).liters, 1)} L) · ${tp.label}` : 'programa desligado',
+    { right: pill(tp.due && tp.plan.on ? 'warn' : null, tp.due && tp.plan.on ? 'Vencida' : 'Ok'), onClick: () => ctx.nav('tarefas') }));
+  if (dd.active) mcard.appendChild(row('Stability de hoje', `${dd.label} · ${fmtNum(dd.ml, 1)} mL`, {
+    right: pill(dd.done ? 'ok' : 'warn', dd.done ? 'Feito' : 'Pendente'), onClick: () => openDoseSheet(aq, ctx.refresh)
+  }));
   mcard.appendChild(row('Última TPA', lastTpa ? `${fmtNum(lastTpa.pct, 0)}% · ${fmtNum(lastTpa.liters, 1)} L · ${relDay(lastTpa.at)}` : 'nenhuma registrada', { onClick: () => ctx.nav('tpa') }));
   mcard.appendChild(row('Última dosagem', (aq.dosings || [])[0] ? `${relDay(aq.dosings[0].at)}` : 'nenhuma registrada', { onClick: () => ctx.nav('dosagens') }));
   el.appendChild(mcard);
@@ -217,18 +230,54 @@ export function paramTile(aq, k, onClick) {
   return t;
 }
 
+/** Tarefas que valem HOJE, já resolvidas por fase do aquário e por cadência. */
 export function todayTasks(aq) {
-  const today = new Date().toDateString();
   const wd = new Date().getDay();
   const dom = new Date().getDate();
-  const log = aq.taskLog || [];
+  const nt = nextTestDue(aq);
+  const tp = tpaDue(aq);
+  const cyc = cyclingStatus(aq);
+  const dd = doseDue(aq);
+  const hasFish = (aq.livestock || []).some((x) => x.status !== 'obito' && x.status !== 'removido');
+
   return (aq.tasks || []).filter((t) => {
     if (!t.on) return false;
+    // tarefas que só fazem sentido em certa fase
+    if (t.fase === 'ciclagem') {
+      if (cyc.done) return false;
+      if (t.prod === 'stability' && !dd.active) return false;
+    }
+    if (t.fase === 'povoado' && !hasFish) return false;
+
     if (t.freq === 'diaria') return true;
+    if (t.freq === 'cadencia') return nt.due;          // acompanha a fase do aquário
+    if (t.freq === 'tpa') return tp.due;               // vence pelo programa de TPA
     if (t.freq === 'semanal') return wd === (t.weekday ?? 6);
     if (t.freq === 'mensal') return dom === (t.monthday ?? 1);
     return t.freq === 'unica';
-  }).map((t) => Object.assign({}, t, { done: log.some((l) => l.taskId === t.id && new Date(l.at).toDateString() === today) }));
+  }).map((t) => {
+    const auto = autoDone(aq, t);
+    return Object.assign({}, t, { done: auto || manualDone(aq, t), auto });
+  });
+}
+
+function manualDone(aq, t) {
+  return (aq.taskLog || []).some((l) => l.taskId === t.id && sameDay(l.at));
+}
+
+/** Marca sozinha quando o registro correspondente já entrou hoje — sem trabalho dobrado. */
+export function autoDone(aq, t) {
+  if (!t.action) return false;
+  if (t.action === 'test') {
+    return (aq.tests || []).some((x) => sameDay(x.at) &&
+      (!t.params || !t.params.length || t.params.every((k) => num(x[k]) !== null)));
+  }
+  if (t.action === 'dose') {
+    return (aq.dosings || []).some((d) => sameDay(d.at) && (!t.prod || d.prod === t.prod));
+  }
+  if (t.action === 'tpa') return (aq.tpas || []).some((x) => sameDay(x.at));
+  if (t.action === 'feed') return (aq.feedings || []).some((x) => sameDay(x.at));
+  return false;
 }
 
 export function toggleTask(aq, taskId) {

@@ -99,27 +99,64 @@ export const PLANT_STATES = [
   { v: 'ruim', n: 'Deteriorando', s: 'bad' }
 ];
 
-/* ---------------- tarefas padrão ---------------- */
+/* ---------------- tarefas padrão ----------------
+   action : liga a tarefa a um registro do app ('test' | 'dose' | 'tpa' | 'feed').
+            Tocando na tarefa, abre o registro certo; e ela se marca sozinha
+            quando o registro correspondente entra no dia.
+   params : para action 'test', quais parâmetros aquele teste precisa conter.
+   prod   : para action 'dose', qual produto.
+   fase   : 'ciclagem' aparece só enquanto o ciclo não foi confirmado;
+            'povoado' aparece só quando existe fauna.
+   how    : orientação de COMO fazer, mostrada ao tocar em "Como fazer". */
 export const TASK_TPL = [
-  { t: 'Verificar temperatura', freq: 'diaria' },
-  { t: 'Observar comportamento dos peixes', freq: 'diaria' },
-  { t: 'Observar respiração / boca na superfície', freq: 'diaria' },
-  { t: 'Verificar funcionamento do filtro', freq: 'diaria' },
-  { t: 'Verificar vazamentos', freq: 'diaria' },
-  { t: 'Conferir iluminação / temporizador', freq: 'diaria' },
-  { t: 'Observar plantas', freq: 'diaria' },
-  { t: 'Alimentar peixes', freq: 'diaria' },
-  { t: 'Testar parâmetros da água', freq: 'semanal' },
-  { t: 'Remover folhas mortas', freq: 'semanal' },
-  { t: 'Conferir fluxo e tampa', freq: 'semanal' },
-  { t: 'Observar crescimento das plantas', freq: 'semanal' },
-  { t: 'Revisar equipamentos', freq: 'mensal' },
-  { t: 'Conferir mídias filtrantes (sem trocar as biológicas)', freq: 'mensal' },
-  { t: 'Avaliar mangueiras e conexões', freq: 'mensal' },
-  { t: 'Registrar evolução das plantas (foto)', freq: 'mensal' }
+  { t: 'Verificar temperatura', freq: 'diaria', action: 'test', params: ['temp'],
+    how: 'Leia o termômetro no lado oposto ao filtro. Anote o valor mesmo que pareça igual ao de ontem — a série histórica é o que revela oscilação.' },
+  { t: 'Observar comportamento dos peixes', freq: 'diaria', fase: 'povoado',
+    how: 'Procure: peixe parado no fundo, nadadeiras fechadas, isolamento, raspar no substrato, perseguição. Qualquer um desses vale uma ocorrência no diário.' },
+  { t: 'Observar respiração / boca na superfície', freq: 'diaria', fase: 'povoado',
+    how: 'Boca na superfície ou guélguela acelerada indica falta de oxigênio ou amônia/nitrito. Teste amônia e nitrito no mesmo dia.' },
+  { t: 'Verificar funcionamento do filtro', freq: 'diaria',
+    how: 'Confira se a cascata mantém o mesmo volume de sempre. Queda de fluxo = pré-filtro saturado. Para o Betta, o fluxo deve estar brando.' },
+  { t: 'Verificar vazamentos', freq: 'diaria',
+    how: 'Passe a mão na base do vidro e nas mangueiras. Umidade onde estava seco merece atenção imediata.' },
+  { t: 'Conferir iluminação / temporizador', freq: 'diaria',
+    how: 'Confirme que ligou e desligou no horário programado. Fotoperíodo irregular favorece alga.' },
+  { t: 'Observar plantas', freq: 'diaria',
+    how: 'Folha totalmente necrosada sai; folha amarelando fica. Antes de pensar em nutriente, considere adaptação, melt, dano mecânico e luz.' },
+  { t: 'Alimentar peixes', freq: 'diaria', action: 'feed', fase: 'povoado',
+    how: 'Ofereça o que desaparece em cerca de 1 minuto. Betta: 3–5 grânulos contados. Corydoras: ração de fundo, de preferência à noite. Sobra vira amônia.' },
+  { t: 'Aplicar Stability sobre as mídias do filtro', freq: 'diaria', action: 'dose', prod: 'stability', fase: 'ciclagem',
+    how: 'Aplique direto sobre as mídias biológicas, no compartimento do filtro — não na coluna d’água. Registre para o app não sugerir a mesma dose duas vezes.' },
+
+  { t: 'Testar amônia e nitrito', freq: 'cadencia', action: 'test', params: ['nh3', 'no2'],
+    how: 'São os dois parâmetros que bloqueiam a entrada de peixe. A frequência acompanha a fase: a cada 1–2 dias na ciclagem, 3–4 dias com fauna nova, semanal quando maduro.' },
+  { t: 'Testar nitrato e pH', freq: 'semanal', action: 'test', params: ['no3', 'ph'],
+    how: 'O nitrato é o que decide TPA: abaixo de 20 ppm sem motivo para trocar, 20–40 atenção, acima de 40 indicada.' },
+
+  { t: 'Avaliar necessidade de TPA', freq: 'tpa', action: 'tpa',
+    how: 'Isto não é "trocar água porque venceu o prazo". O app olha amônia, nitrito, nitrato, pH, temperatura e a fase do ciclo, e diz se a troca se justifica hoje.' },
+
+  { t: 'Remover folhas mortas', freq: 'semanal',
+    how: 'Retire só o material realmente morto. Matéria em decomposição dentro do aquário vira amônia e carga para o filtro.' },
+  { t: 'Conferir fluxo e tampa', freq: 'semanal',
+    how: 'Tampa sempre fechada — Betta salta. Fluxo brando na superfície.' },
+  { t: 'Observar crescimento das plantas', freq: 'semanal',
+    how: 'Compare com a foto do mês passado. Folha nova saudável é o melhor sinal de que a planta pegou.' },
+
+  { t: 'Revisar equipamentos', freq: 'mensal',
+    how: 'Termostato, calha, filtro e temporizador. Verifique aquecimento anormal em plugues e fontes.' },
+  { t: 'Conferir mídias filtrantes (sem trocar as biológicas)', freq: 'mensal',
+    how: 'Se precisar lavar, lave na ÁGUA DO PRÓPRIO AQUÁRIO, nunca na torneira — cloro mata a colônia. Nunca substitua todo o material biológico de uma vez.' },
+  { t: 'Avaliar mangueiras e conexões', freq: 'mensal',
+    how: 'Procure ressecamento, folga e acúmulo interno que reduza a vazão.' },
+  { t: 'Registrar evolução das plantas (foto)', freq: 'mensal',
+    how: 'Mesma distância e mesmo ângulo todo mês. Em três meses a comparação mostra o que nenhuma anotação mostra.' }
 ];
 
-export const FREQ = { diaria: 'Diária', semanal: 'Semanal', mensal: 'Mensal', unica: 'Única' };
+export const FREQ = {
+  diaria: 'Diária', semanal: 'Semanal', mensal: 'Mensal', unica: 'Única',
+  cadencia: 'Conforme a fase', tpa: 'TPA programada'
+};
 
 /* ---------------- fábrica de aquário ---------------- */
 export function newAquarium(over = {}) {
@@ -149,6 +186,9 @@ export function newAquarium(over = {}) {
     },
     light: { on: '14:00', off: '20:00', hours: 6, intensity: 'média', notes: '' },
 
+    // TPA programada: o calendário lembra, os parâmetros decidem
+    tpaPlan: { on: true, every: 10, pct: 20 },
+
     cycling: { active: true, start: today, phase: 1, done: false, doneAt: null },
 
     tests: [],
@@ -169,7 +209,15 @@ export function newAquarium(over = {}) {
 export function seedTasks(aq) {
   aq.tasks = TASK_TPL.map((t, i) => ({
     id: 't' + i + Math.random().toString(36).slice(2, 6),
-    title: t.t, freq: t.freq, time: t.freq === 'diaria' ? '09:00' : '', on: true
+    title: t.t,
+    freq: t.freq,
+    time: t.freq === 'diaria' ? '09:00' : '',
+    on: true,
+    action: t.action || null,
+    params: t.params || null,
+    prod: t.prod || null,
+    fase: t.fase || null,
+    how: t.how || ''
   }));
   return aq;
 }
