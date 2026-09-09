@@ -79,9 +79,10 @@ export default function account(ctx) {
           }
         }),
         h('button', {
-          class: 'btn sm', text: 'Já confirmei', onclick: async () => {
+          class: 'btn sm', text: 'Já confirmei', onclick: async (e) => {
+            e.currentTarget.disabled = true;
             await cloud.refreshUser();
-            toast(cloud.status.user?.verified ? 'E-mail confirmado' : 'Ainda não consta como confirmado', cloud.status.user?.verified ? 'ok' : 'bad');
+            toast(cloud.status.user?.verified ? 'E-mail confirmado e acesso revalidado' : 'Ainda não consta como confirmado', cloud.status.user?.verified ? 'ok' : 'bad');
             ctx.refresh();
           }
         })
@@ -97,6 +98,19 @@ export default function account(ctx) {
   sb.appendChild(kv('Aquário ativo', active()?.name || '—'));
   if (cloud.status.lastError) sb.appendChild(h('div', { class: 'alert bad', style: { marginTop: '10px' } }, icon('alert', 'ic'),
     h('div', {}, h('div', { class: 'alert-t', text: 'Último erro' }), h('div', { class: 'alert-d', text: cloud.status.lastError }))));
+  sb.appendChild(h('button', {
+    class: 'btn sec', style: { marginTop: '12px' }, onclick: async (e) => {
+      const b = e.currentTarget; b.disabled = true; b.textContent = 'Revalidando…';
+      try {
+        const u = await cloud.refreshUser();
+        const t = await cloud.tokenInfo({ force: true });
+        if (t?.emailVerified) toast('Acesso revalidado — pode sincronizar', 'ok');
+        else if (u?.verified) toast('E-mail confirmado, mas o token ainda não. Tente de novo em instantes.', 'bad');
+        else toast('O e-mail ainda não foi confirmado', 'bad');
+      } catch (err) { toast(cloud.errMsg(err), 'bad'); }
+      ctx.refresh();
+    }
+  }, icon('refresh', 'ic ic-sm'), 'Revalidar acesso'));
   sb.appendChild(h('button', {
     class: 'btn', style: { marginTop: '12px' }, disabled: cloud.status.syncing, onclick: async (e) => {
       const b = e.currentTarget; b.disabled = true; b.textContent = 'Sincronizando…';
@@ -164,6 +178,7 @@ export default function account(ctx) {
   el.appendChild(h('div', { class: 'sec-title', text: 'Segurança' }));
   const seg = h('div', { class: 'card' });
   seg.appendChild(row('Alterar senha', '', { left: icon('shield', 'ic'), onClick: () => openChangePass() }));
+  seg.appendChild(row('Diagnóstico do acesso', 'o que as regras do Firestore realmente veem', { left: icon('eye', 'ic'), onClick: () => openDiag() }));
   seg.appendChild(row('Sair da conta', 'os dados continuam neste aparelho', {
     left: icon('up', 'ic'),
     onClick: () => confirmSheet({
@@ -331,6 +346,75 @@ function openDeleteAccount(ctx) {
         }
       }, 'Excluir minha conta'));
     }
+  });
+}
+
+/* ================= diagnóstico ================= */
+function openDiag() {
+  return sheet({
+    title: 'Diagnóstico do acesso',
+    big: true,
+    body: async (b) => {
+      b.appendChild(h('div', { class: 'note', text: 'Consultando o token…' }));
+      try {
+        const t = await cloud.tokenInfo({ force: false });
+        b.innerHTML = '';
+        if (!t) { b.appendChild(h('div', { class: 'note', text: 'Nenhuma conta conectada.' })); return; }
+
+        b.appendChild(h('div', { class: 'note', style: { marginBottom: '12px' } },
+          'As três condições abaixo são exatamente o que a regra do Firestore avalia. Todas precisam estar verdes.'));
+
+        const cond = (nome, valor, detalhe) => h('div', { class: 'card-row' },
+          h('span', { style: { color: valor ? 'var(--ok)' : 'var(--bad)' } }, icon(valor ? 'checkCircle' : 'alert', 'ic')),
+          h('div', { class: 'row-main' },
+            h('div', { class: 'row-title', text: nome }),
+            h('div', { class: 'row-sub', text: detalhe })),
+          pill(valor ? 'ok' : 'bad', valor ? 'ok' : 'falha'));
+
+        const card = h('div', { class: 'card' });
+        card.appendChild(cond('request.auth != null', true, 'conta conectada'));
+        card.appendChild(cond('request.auth.token.email', !!t.email, t.email || 'ausente no token'));
+        card.appendChild(cond('request.auth.token.email_verified', t.emailVerified, t.emailVerified ? 'verdadeiro no token' : 'FALSO no token — esta é a causa'));
+        b.appendChild(card);
+
+        if (!t.emailVerified && t.userObjectVerified) {
+          b.appendChild(h('div', { class: 'alert warn' }, icon('alert', 'ic'), h('div', {},
+            h('div', { class: 'alert-t', text: 'E-mail confirmado, token desatualizado' }),
+            h('div', { class: 'alert-d', text: 'O e-mail JÁ foi confirmado, mas o token que o app apresenta ao Firestore ainda é o antigo. Confirmar o e-mail não renova o token — ele vale até 1 hora. Toque em "Renovar token agora".' }))));
+        }
+
+        b.appendChild(h('div', { class: 'card' }, h('div', { class: 'card-pad' },
+          kv('UID', t.uid),
+          kv('E-mail no token', t.email || '—'),
+          kv('Confirmado no token', t.emailVerified ? 'sim' : 'não'),
+          kv('Confirmado no app', t.userObjectVerified ? 'sim' : 'não'),
+          kv('Token emitido em', t.issuedAt ? fmtDate(t.issuedAt) : '—'),
+          kv('Token expira em', t.expiresAt ? fmtDate(t.expiresAt) : '—')
+        )));
+
+        b.appendChild(h('div', { class: 'note', style: { marginBottom: '10px' } },
+          'O UID acima é a pasta onde os seus dados ficam: /users/', t.uid, '. Confira se é a mesma que aparece no console do Firebase.'));
+
+        b.appendChild(h('button', {
+          class: 'btn', onclick: async (e) => {
+            const btn = e.currentTarget; btn.disabled = true; btn.textContent = 'Renovando…';
+            try {
+              await cloud.refreshUser();
+              const n = await cloud.tokenInfo({ force: true });
+              toast(n?.emailVerified ? 'Token renovado — acesso liberado' : 'Token renovado, mas ainda consta não confirmado', n?.emailVerified ? 'ok' : 'bad');
+            } catch (err) { toast(cloud.errMsg(err), 'bad'); }
+            btn.disabled = false; btn.textContent = 'Renovar token agora';
+          }
+        }, icon('refresh', 'ic ic-sm'), 'Renovar token agora'));
+
+        b.appendChild(h('div', { style: { height: '9px' } }));
+        b.appendChild(h('div', { class: 'note' }, 'Se renovar não resolver, sair e entrar de novo na conta sempre gera um token novo — é a solução garantida.'));
+      } catch (e) {
+        b.innerHTML = '';
+        b.appendChild(errBox(cloud.errMsg(e)));
+      }
+    },
+    actions: (close) => h('button', { class: 'btn sec', text: 'Fechar', onclick: () => close() })
   });
 }
 

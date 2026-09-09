@@ -1,6 +1,6 @@
-/* AquaFlow service worker — app shell offline-first.
-   Ao publicar uma nova versão, mude VERSION. */
-const VERSION = 'v1.1.1';
+﻿/* AquaFlow service worker â€” app shell offline-first.
+   Ao publicar uma nova versÃ£o, mude VERSION. */
+const VERSION = 'v1.1.2';
 const SHELL = `aquaflow-shell-${VERSION}`;
 
 const ASSETS = [
@@ -66,7 +66,7 @@ self.addEventListener('fetch', (e) => {
   // nunca intercepta outras origens (ex.: API do Gemini)
   if (url.origin !== self.location.origin) return;
 
-  // navegação: rede primeiro (pega deploy novo), cai p/ shell offline
+  // navegaÃ§Ã£o: rede primeiro (pega deploy novo), cai p/ shell offline
   if (req.mode === 'navigate') {
     e.respondWith((async () => {
       try {
@@ -79,7 +79,7 @@ self.addEventListener('fetch', (e) => {
     return;
   }
 
-  // estáticos: cache primeiro, revalida em background
+  // estÃ¡ticos: cache primeiro, revalida em background
   e.respondWith((async () => {
     const c = await caches.open(SHELL);
     const hit = await c.match(req, { ignoreSearch: false });

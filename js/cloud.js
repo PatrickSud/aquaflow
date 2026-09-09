@@ -146,7 +146,7 @@ const ERR = {
   'auth/user-disabled': 'Esta conta foi desativada.',
   'auth/operation-not-allowed': 'O login por e-mail e senha não está habilitado no projeto Firebase. Ative em Authentication → Sign-in method.',
   'auth/unauthorized-domain': 'Este endereço não está autorizado no Firebase. Adicione o domínio em Authentication → Settings → Authorized domains.',
-  'permission-denied': 'A conta entrou, mas as regras do Firestore recusaram o acesso. Confira se o seu e-mail está na lista de permitidos das regras.',
+  'permission-denied': 'As regras do Firestore recusaram o acesso. A causa mais comum é o e-mail ainda não estar confirmado NO TOKEN: confirmar o e-mail não renova o token automaticamente. Toque em "Revalidar acesso" na tela da Conta. Se persistir, confira se o seu e-mail está na lista das regras, exatamente igual.',
   'unavailable': 'Firestore inacessível agora. Os dados seguem salvos no aparelho e sincronizam depois.',
   'failed-precondition': 'O Firestore ainda não foi criado neste projeto. Crie o banco no console do Firebase.'
 };
@@ -191,13 +191,35 @@ export async function resendVerification() {
   await fb.sendEmailVerification(u);
 }
 
+/* IMPORTANTE — os dois passos são necessários e fazem coisas diferentes:
+   - reload(user)      atualiza o objeto do usuário aqui no app (user.emailVerified)
+   - getIdToken(true)  renova o TOKEN, que é o que o Firestore lê nas regras
+   Sem o segundo, o app mostra "e-mail confirmado" mas o Firestore continua
+   recusando por até 1 hora, porque o token antigo ainda diz email_verified=false.
+   É um comportamento conhecido do Firebase, não um erro de configuração. */
 export async function refreshUser() {
   const u = currentUser();
   if (!u) return null;
   await fb.reload(u);
+  try { await u.getIdToken(true); } catch (e) { console.warn('token', e); }
   status.user = { uid: u.uid, email: u.email, verified: u.emailVerified };
   emit();
   return status.user;
+}
+
+/** O que o token REALMENTE diz — é isso que as regras do Firestore avaliam. */
+export async function tokenInfo({ force = false } = {}) {
+  const u = currentUser();
+  if (!u) return null;
+  const r = await u.getIdTokenResult(force);
+  return {
+    uid: u.uid,
+    email: r.claims.email || null,
+    emailVerified: r.claims.email_verified === true,
+    userObjectVerified: u.emailVerified === true,
+    issuedAt: r.issuedAtTime,
+    expiresAt: r.expirationTime
+  };
 }
 
 export async function changePassword(currentPassword, newPassword) {
@@ -300,6 +322,14 @@ export async function syncNow({ quiet = false, photos = null } = {}) {
   const res = { pushed: 0, pulled: 0, photosUp: 0, photosDown: 0, conflicts: 0 };
 
   try {
+    // Se o objeto do usuário já diz confirmado mas o token ainda não, renova o
+    // token ANTES de falar com o Firestore. Sem isto, o primeiro acesso depois
+    // de confirmar o e-mail é recusado pelas regras.
+    try {
+      const t = await u.getIdTokenResult(false);
+      if (u.emailVerified && t.claims.email_verified !== true) await u.getIdToken(true);
+    } catch (e) { console.warn('token', e); }
+
     const meta = metaFor(u.uid, aq.id);
     // ENVIAR ANTES DE BAIXAR: assim a nuvem já contém tudo que foi feito aqui,
     // e na descida "o remoto vence" passa a ser a regra correta em vez de sorteio.
