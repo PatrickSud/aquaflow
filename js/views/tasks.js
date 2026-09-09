@@ -3,11 +3,11 @@
    trocar água ou dosar por prazo vencido sem antes olhar os dados. */
 
 import {
-  h, icon, cardHead, row, pill, sheet, toast, field, input, select, segmented,
-  empty, switchBtn, confirmSheet, kv, stepper
+  h, icon, cardHead, row, pill, sheet, toast, field, input, textarea, select, segmented,
+  empty, switchBtn, confirmSheet, menuSheet, kv, stepper
 } from '../ui.js';
 import { save, uid, touch, remove } from '../store.js';
-import { TASK_TPL, FREQ } from '../model.js';
+import { TASK_TPL, FREQ, CORE, P, PRODUCTS } from '../model.js';
 import {
   fmtDate, fmtNum, relDay, nextTestDue, tpaDue, tpaVerdict, tpaSteps, doseDue, tpaCalc
 } from '../engine.js';
@@ -98,25 +98,39 @@ export default function tasks(ctx) {
     el.appendChild(h('div', { class: 'sec-title', text: FREQ[f] || f }));
     const c = h('div', { class: 'card' });
     list.forEach((t) => c.appendChild(h('div', { class: 'card-row' },
-      t.action ? h('span', { style: { color: 'var(--accent)', flex: '0 0 auto' } }, icon(actIcon(t.action), 'ic ic-sm')) : null,
-      h('div', { class: 'row-main' },
+      // a linha inteira abre a edição; o interruptor e o menu ficam de fora do toque
+      h('button', {
+        class: 'row-main press',
+        style: { textAlign: 'left', display: 'block', padding: '0' },
+        onclick: () => taskSheet(aq, ctx.refresh, t)
+      },
         h('div', { class: 'row-title', text: t.title, style: t.on ? {} : { color: 'var(--tx-3)' } }),
-        h('div', { class: 'row-sub', text: subLabel(t, aq) })),
-      t.how ? h('button', { class: 'tb-btn', style: { width: '30px', height: '30px' }, 'aria-label': 'Como fazer', onclick: () => openHow(t) }, icon('info', 'ic ic-sm')) : null,
+        h('div', { class: 'row-sub' },
+          t.action ? h('span', { style: { color: 'var(--accent)', display: 'inline-flex', marginRight: '5px' } }, icon(actIcon(t.action), 'ic ic-sm')) : null,
+          h('span', { text: subLabel(t, aq) }))),
       switchBtn(t.on, (v) => { t.on = v; touch(t); save(); }),
       h('button', {
-        class: 'tb-btn', style: { width: '30px', height: '30px' }, 'aria-label': 'Excluir',
-        onclick: () => confirmSheet({
-          title: 'Excluir tarefa?', message: t.title, confirmText: 'Excluir', danger: true,
-          onConfirm: async () => { await remove('tasks', t.id); ctx.refresh(); }
-        })
-      }, icon('trash', 'ic ic-sm'))
+        class: 'tb-btn', style: { width: '30px', height: '30px' }, 'aria-label': 'Opções',
+        onclick: () => menuSheet(t.title, [
+          { icon: 'edit', label: 'Editar tarefa', on: () => taskSheet(aq, ctx.refresh, t) },
+          t.how ? { icon: 'info', label: 'Como fazer', on: () => openHow(t) } : null,
+          { icon: t.on ? 'x' : 'check', label: t.on ? 'Desativar' : 'Ativar', on: () => { t.on = !t.on; touch(t); save(); ctx.refresh(); } },
+          {
+            icon: 'trash', label: 'Excluir tarefa', danger: true, on: () => confirmSheet({
+              title: 'Excluir tarefa?',
+              message: `"${t.title}" sai da rotina. O histórico de conclusões dela continua no aquário.`,
+              confirmText: 'Excluir', danger: true,
+              onConfirm: async () => { await remove('tasks', t.id); toast('Tarefa excluída'); ctx.refresh(); }
+            })
+          }
+        ])
+      }, icon('sliders', 'ic ic-sm'))
     )));
     el.appendChild(c);
   });
 
   el.appendChild(h('div', { style: { height: '12px' } }));
-  el.appendChild(h('button', { class: 'btn', onclick: () => addTask(aq, ctx.refresh) }, icon('plus', 'ic ic-sm'), 'Nova tarefa'));
+  el.appendChild(h('button', { class: 'btn', onclick: () => taskSheet(aq, ctx.refresh) }, icon('plus', 'ic ic-sm'), 'Nova tarefa'));
   el.appendChild(h('div', { style: { height: '9px' } }));
   el.appendChild(h('button', {
     class: 'btn sec', onclick: () => confirmSheet({
@@ -137,7 +151,7 @@ export default function tasks(ctx) {
     el.appendChild(c);
   }
 
-  return { title: 'Tarefas', actions: [{ icon: 'plus', label: 'Nova', on: () => addTask(aq, ctx.refresh) }], el };
+  return { title: 'Tarefas', actions: [{ icon: 'plus', label: 'Nova', on: () => taskSheet(aq, ctx.refresh) }], el };
 }
 
 /* ---------------- linha de tarefa do dia ---------------- */
@@ -160,7 +174,11 @@ function taskRow(aq, t, ctx) {
     }
   }, t.done ? icon('check', 'ic ic-sm') : null));
 
-  lab.appendChild(h('div', { style: { flex: '1', minWidth: '0' } },
+  lab.appendChild(h('button', {
+    style: { flex: '1', minWidth: '0', textAlign: 'left', display: 'block', padding: '0' },
+    'aria-label': 'Editar ' + t.title,
+    onclick: () => taskSheet(aq, ctx.refresh, (aq.tasks || []).find((x) => x.id === t.id))
+  },
     h('div', { style: { fontSize: '15px', color: t.done ? 'var(--tx-3)' : 'var(--tx)', textDecoration: t.done ? 'line-through' : 'none' }, text: t.title }),
     h('div', { style: { fontSize: '12px', color: 'var(--tx-3)', marginTop: '1px' }, text: t.auto ? 'registrado hoje' : subLabel(t, aq) })
   ));
@@ -324,39 +342,157 @@ function seed(aq, merge = false) {
   toast('Rotina atualizada', 'ok');
 }
 
-function addTask(aq, refresh) {
-  let title = '', freq = 'diaria', time = '09:00', action = '', how = '';
+const DIAS = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
+
+/** Formulário único: sem `t` cria uma tarefa nova, com `t` edita a existente. */
+export function taskSheet(aq, refresh, t) {
+  const novo = !t;
+  const d = {
+    title: t?.title || '',
+    freq: t?.freq || 'diaria',
+    time: t?.time || '09:00',
+    action: t?.action || '',
+    params: [...(t?.params || [])],
+    prod: t?.prod || '',
+    fase: t?.fase || '',
+    how: t?.how || '',
+    weekday: t?.weekday ?? 6,
+    monthday: t?.monthday ?? 1,
+    on: t?.on ?? true
+  };
+
   return sheet({
-    title: 'Nova tarefa',
+    title: novo ? 'Nova tarefa' : 'Editar tarefa',
     big: true,
     body: (b, close) => {
-      b.appendChild(field('O que fazer', input({ placeholder: 'ex.: Sifonar o fundo', oninput: (e) => { title = e.target.value; } })));
-      b.appendChild(field('Frequência', segmented([
+      const out = h('div');
+      const quandoBox = h('div');
+      const vincBox = h('div');
+
+      out.appendChild(field('O que fazer', input({
+        value: d.title, placeholder: 'ex.: Sifonar o fundo',
+        oninput: (e) => { d.title = e.target.value; }
+      })));
+
+      /* ---- quando ---- */
+      const drawQuando = () => {
+        quandoBox.innerHTML = '';
+        if (d.freq === 'semanal') {
+          quandoBox.appendChild(field('Dia da semana', select(
+            DIAS.map((n, i) => ({ v: String(i), n, sel: i === d.weekday })),
+            { onchange: (e) => { d.weekday = Number(e.target.value); } })));
+        }
+        if (d.freq === 'mensal') {
+          quandoBox.appendChild(field('Dia do mês', stepper(d.monthday, { min: 1, max: 28, onChange: (v) => { d.monthday = v; } }),
+            'Até 28 para o dia existir em todos os meses.'));
+        }
+        if (d.freq === 'cadencia') {
+          quandoBox.appendChild(h('div', { class: 'note', style: { marginBottom: '15px' } },
+            `Vence conforme a fase do aquário — hoje a cada ${nextTestDue(aq).every} dias. Muda sozinho quando o ciclo conclui ou entra fauna nova.`));
+        }
+        if (d.freq === 'tpa') {
+          const p = tpaDue(aq);
+          quandoBox.appendChild(h('div', { class: 'note', style: { marginBottom: '15px' } },
+            p.plan.on ? `Vence junto do programa de TPA — a cada ${p.plan.every} dias. Situação: ${p.label}.`
+              : 'O programa de TPA está desligado, então esta tarefa não vai vencer. Ligue em "Configurar programa de TPA".'));
+        }
+        if (d.freq === 'diaria' || d.freq === 'semanal' || d.freq === 'mensal' || d.freq === 'unica') {
+          quandoBox.appendChild(field('Horário', input({
+            type: 'time', value: d.time, oninput: (e) => { d.time = e.target.value; }
+          }), null, true));
+        }
+      };
+
+      out.appendChild(field('Frequência', segmented([
         { v: 'diaria', n: 'Diária' }, { v: 'semanal', n: 'Semanal' }, { v: 'mensal', n: 'Mensal' },
         { v: 'cadencia', n: 'Conforme a fase' }, { v: 'tpa', n: 'Junto da TPA' }, { v: 'unica', n: 'Única' }
-      ], freq, (v) => { freq = v; }, 'wrap')));
-      b.appendChild(field('Vincular a um registro', select([
-        { v: '', n: 'Nenhum — só marcar como feita', sel: true },
-        { v: 'test', n: 'Medição de parâmetros' },
-        { v: 'dose', n: 'Dosagem de produto' },
-        { v: 'tpa', n: 'Troca parcial de água' },
-        { v: 'feed', n: 'Alimentação' }
-      ], { onchange: (e) => { action = e.target.value; } }),
-        'Vinculando, a tarefa abre o registro certo quando você toca nela, e se marca sozinha quando o registro entra.'));
-      b.appendChild(field('Horário', input({ type: 'time', value: time, oninput: (e) => { time = e.target.value; } }), null, true));
-      b.appendChild(field('Como fazer', input({ placeholder: 'orientação que aparece no ícone de informação', oninput: (e) => { how = e.target.value; } }), null, true));
-      b.appendChild(h('button', {
-        class: 'btn', text: 'Adicionar', onclick: () => {
-          if (!title.trim()) { toast('Informe a tarefa', 'bad'); return; }
-          aq.tasks = aq.tasks || [];
-          aq.tasks.push({
-            id: uid(), title: title.trim(), freq, time, on: true,
-            action: action || null, params: null, prod: null, fase: null, how: how.trim(),
-            updatedAt: new Date().toISOString()
+      ], d.freq, (v) => { d.freq = v; drawQuando(); }, 'wrap')));
+      out.appendChild(quandoBox);
+      drawQuando();
+
+      /* ---- vínculo com registro ---- */
+      const drawVinc = () => {
+        vincBox.innerHTML = '';
+        if (d.action === 'test') {
+          const grid = h('div', { class: 'seg wrap' });
+          CORE.forEach((k) => {
+            const sel = d.params.includes(k);
+            const btn = h('button', { type: 'button', 'aria-pressed': String(sel), text: P[k].n.replace(/\s*\(.*\)/, '') });
+            btn.addEventListener('click', () => {
+              const i = d.params.indexOf(k);
+              if (i >= 0) d.params.splice(i, 1); else d.params.push(k);
+              btn.setAttribute('aria-pressed', String(d.params.includes(k)));
+            });
+            grid.appendChild(btn);
           });
-          save({ immediate: true }); close(); refresh?.();
+          vincBox.appendChild(field('Quais parâmetros contam', grid,
+            'A tarefa só se marca sozinha quando o teste do dia incluir TODOS os parâmetros marcados. Sem nenhum marcado, qualquer teste do dia serve.'));
         }
-      }));
-    }
+        if (d.action === 'dose') {
+          vincBox.appendChild(field('Qual produto', select(
+            [{ v: '', n: 'Qualquer produto', sel: !d.prod }, ...PRODUCTS.map((p) => ({ v: p.id, n: p.name, sel: p.id === d.prod }))],
+            { onchange: (e) => { d.prod = e.target.value; } }),
+            'A tarefa se marca sozinha quando houver dosagem desse produto no dia.'));
+        }
+      };
+
+      out.appendChild(field('Vincular a um registro', select([
+        { v: '', n: 'Nenhum — só marcar como feita', sel: !d.action },
+        { v: 'test', n: 'Medição de parâmetros', sel: d.action === 'test' },
+        { v: 'dose', n: 'Dosagem de produto', sel: d.action === 'dose' },
+        { v: 'tpa', n: 'Troca parcial de água', sel: d.action === 'tpa' },
+        { v: 'feed', n: 'Alimentação', sel: d.action === 'feed' }
+      ], { onchange: (e) => { d.action = e.target.value; drawVinc(); } }),
+        'Vinculando, a tarefa abre o registro certo quando você toca nela, e se marca sozinha quando o registro entra — sem anotar duas vezes.'));
+      out.appendChild(vincBox);
+      drawVinc();
+
+      /* ---- fase ---- */
+      out.appendChild(field('Quando faz sentido', segmented([
+        { v: '', n: 'Sempre' }, { v: 'ciclagem', n: 'Só na ciclagem' }, { v: 'povoado', n: 'Só com peixes' }
+      ], d.fase, (v) => { d.fase = v; }, 'wrap'),
+        'A tarefa desaparece da lista do dia fora da fase escolhida, em vez de ficar cobrando algo impossível.'));
+
+      /* ---- orientação ---- */
+      out.appendChild(field('Como fazer', textarea({
+        value: d.how, placeholder: 'Orientação que aparece ao tocar em "Como fazer".',
+        style: { minHeight: '96px' },
+        oninput: (e) => { d.how = e.target.value; }
+      }), null, true));
+
+      b.appendChild(out);
+    },
+    actions: (close) => h('div', { class: 'btn-row', style: { paddingTop: '6px' } },
+      h('button', { class: 'btn sec', text: 'Cancelar', onclick: () => close() }),
+      h('button', {
+        class: 'btn', text: novo ? 'Adicionar' : 'Salvar', onclick: () => {
+          if (!d.title.trim()) { toast('Informe a tarefa', 'bad'); return; }
+          const dados = {
+            title: d.title.trim(),
+            freq: d.freq,
+            time: (d.freq === 'cadencia' || d.freq === 'tpa') ? '' : d.time,
+            action: d.action || null,
+            params: d.action === 'test' && d.params.length ? d.params : null,
+            prod: d.action === 'dose' && d.prod ? d.prod : null,
+            fase: d.fase || null,
+            how: d.how.trim()
+          };
+          if (d.freq === 'semanal') dados.weekday = d.weekday;
+          if (d.freq === 'mensal') dados.monthday = d.monthday;
+
+          if (novo) {
+            aq.tasks = aq.tasks || [];
+            aq.tasks.push(Object.assign({ id: uid(), on: true, updatedAt: new Date().toISOString() }, dados));
+          } else {
+            Object.assign(t, dados);
+            touch(t);
+          }
+          save({ immediate: true });
+          close();
+          toast(novo ? 'Tarefa adicionada' : 'Tarefa atualizada', 'ok');
+          refresh?.();
+        }
+      })
+    )
   });
 }
