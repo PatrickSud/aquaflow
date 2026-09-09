@@ -69,6 +69,19 @@ export function series(aq, k, days = 0) {
     .sort((a, b) => a.t - b.t);
 }
 
+/** Eventos de TPA e dosagem no período, para marcar nos gráficos de parâmetro
+ *  (ex.: ver visualmente que o nitrato caiu porque houve uma TPA naquele dia). */
+export function chartEvents(aq, days = 0) {
+  const cut = days ? Date.now() - days * dayMs : 0;
+  const tpas = (aq.tpas || [])
+    .filter((t) => !cut || new Date(t.at) >= cut)
+    .map((t) => ({ t: new Date(t.at).getTime(), label: `TPA ${fmtNum(t.pct, 0)}%` }));
+  const doses = (aq.dosings || [])
+    .filter((d) => !cut || new Date(d.at) >= cut)
+    .map((d) => ({ t: new Date(d.at).getTime(), label: PRODUCT[d.prod]?.name || 'Dosagem' }));
+  return { tpas, doses };
+}
+
 /* ---------------- status por parâmetro ---------------- */
 export function target(aq, k) {
   const d = P[k] || {};

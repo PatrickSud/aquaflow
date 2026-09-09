@@ -112,6 +112,26 @@ export function openDoseSheet(aq, refresh) {
       const out = h('div');
       const guardBox = h('div');
       const helpBox = h('div');
+      const lastBox = h('div');
+
+      const mlInput = input({ type: 'number', step: '0.1', inputmode: 'decimal', placeholder: 'ex.: 6', oninput: (e) => { ml = e.target.value; } });
+      const waterInput = input({ type: 'number', step: '0.5', placeholder: `padrão: ${fmtNum(aq.volUtil, 0)} L úteis`, oninput: (e) => { water = e.target.value; } });
+      const whereInput = input({ value: where, oninput: (e) => { where = e.target.value; } });
+
+      const drawLast = () => {
+        lastBox.innerHTML = '';
+        const last = (aq.dosings || []).find((d) => d.prod === prod);
+        if (!last) return;
+        lastBox.appendChild(h('button', {
+          class: 'btn ghost', style: { marginBottom: '14px' },
+          onclick: () => {
+            ml = String(last.ml ?? ''); mlInput.value = ml;
+            water = last.water != null ? String(last.water) : ''; waterInput.value = water;
+            if (last.where) { where = last.where; whereInput.value = where; }
+            toast('Valores da última dosagem preenchidos');
+          }
+        }, icon('refresh', 'ic ic-sm'), `Repetir última dosagem (${relDay(last.at)} · ${fmtNum(last.ml, 2)} mL)`));
+      };
 
       const draw = () => {
         const p = PRODUCT[prod];
@@ -134,15 +154,17 @@ export function openDoseSheet(aq, refresh) {
             p.notes ? h('div', { class: 'note', style: { marginTop: '6px' }, text: p.notes }) : null
           )));
         }
+        drawLast();
       };
 
       out.appendChild(field('Produto', select(PRODUCTS.map((p) => ({ v: p.id, n: p.name, sel: p.id === prod })), { onchange: (e) => { prod = e.target.value; draw(); } })));
       out.appendChild(helpBox);
+      out.appendChild(lastBox);
       out.appendChild(guardBox);
       out.appendChild(field('Data e hora', input({ type: 'datetime-local', value: at, oninput: (e) => { at = e.target.value; } })));
-      out.appendChild(field('Quantidade aplicada (mL)', input({ type: 'number', step: '0.1', inputmode: 'decimal', placeholder: 'ex.: 6', oninput: (e) => { ml = e.target.value; } })));
-      out.appendChild(field('Volume de água considerado (L)', input({ type: 'number', step: '0.5', placeholder: `padrão: ${fmtNum(aq.volUtil, 0)} L úteis`, oninput: (e) => { water = e.target.value; } }), 'Para condicionador de TPA, informe os litros de ÁGUA NOVA.', true));
-      out.appendChild(field('Local da aplicação', input({ value: where, oninput: (e) => { where = e.target.value; } }), null, true));
+      out.appendChild(field('Quantidade aplicada (mL)', mlInput));
+      out.appendChild(field('Volume de água considerado (L)', waterInput, 'Para condicionador de TPA, informe os litros de ÁGUA NOVA.', true));
+      out.appendChild(field('Local da aplicação', whereInput, null, true));
       out.appendChild(field('Observações', textarea({ oninput: (e) => { notes = e.target.value; } }), null, true));
       draw();
       b.appendChild(out);

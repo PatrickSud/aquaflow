@@ -11,7 +11,7 @@ import { TASK_TPL, FREQ, CORE, P, PRODUCTS } from '../model.js';
 import {
   fmtDate, fmtNum, relDay, nextTestDue, tpaDue, tpaVerdict, tpaSteps, doseDue, tpaCalc
 } from '../engine.js';
-import { todayTasks, toggleTask } from './dashboard.js';
+import { todayTasks, toggleTask, skipTask } from './dashboard.js';
 import { openTPASheet, openDoseSheet, openFeedSheet } from './logs.js';
 import { openTestSheet } from './params.js';
 
@@ -142,11 +142,11 @@ export default function tasks(ctx) {
 
   const log = (aq.taskLog || []).slice(0, 12);
   if (log.length) {
-    el.appendChild(h('div', { class: 'sec-title', text: 'Últimas conclusões manuais' }));
+    el.appendChild(h('div', { class: 'sec-title', text: 'Últimas conclusões e pulos' }));
     const c = h('div', { class: 'card' });
     log.forEach((l) => {
       const t = (aq.tasks || []).find((x) => x.id === l.taskId);
-      c.appendChild(row(t?.title || 'Tarefa removida', fmtDate(l.at), { right: pill('ok', 'Feita') }));
+      c.appendChild(row(t?.title || 'Tarefa removida', fmtDate(l.at), { right: l.skipped ? pill(null, 'Pulada') : pill('ok', 'Feita') }));
     });
     el.appendChild(c);
   }
@@ -162,8 +162,8 @@ function taskRow(aq, t, ctx) {
     style: {
       width: '24px', height: '24px', borderRadius: '7px', flex: '0 0 auto',
       display: 'grid', placeItems: 'center',
-      border: '2px solid ' + (t.done ? 'var(--accent)' : 'var(--line)'),
-      background: t.done ? 'var(--accent)' : 'transparent',
+      border: '2px solid ' + (t.done ? (t.skipped ? 'var(--tx-3)' : 'var(--accent)') : 'var(--line)'),
+      background: t.done ? (t.skipped ? 'var(--tx-3)' : 'var(--accent)') : 'transparent',
       color: t.done ? '#fff' : 'transparent'
     },
     'aria-label': t.done ? 'Desmarcar' : 'Marcar',
@@ -172,20 +172,27 @@ function taskRow(aq, t, ctx) {
       toggleTask(aq, t.id);
       ctx.refresh();
     }
-  }, t.done ? icon('check', 'ic ic-sm') : null));
+  }, t.done ? icon(t.skipped ? 'clock' : 'check', 'ic ic-sm') : null));
 
   lab.appendChild(h('button', {
     style: { flex: '1', minWidth: '0', textAlign: 'left', display: 'block', padding: '0' },
     'aria-label': 'Editar ' + t.title,
     onclick: () => taskSheet(aq, ctx.refresh, (aq.tasks || []).find((x) => x.id === t.id))
   },
-    h('div', { style: { fontSize: '15px', color: t.done ? 'var(--tx-3)' : 'var(--tx)', textDecoration: t.done ? 'line-through' : 'none' }, text: t.title }),
-    h('div', { style: { fontSize: '12px', color: 'var(--tx-3)', marginTop: '1px' }, text: t.auto ? 'registrado hoje' : subLabel(t, aq) })
+    h('div', { style: { fontSize: '15px', color: t.done ? 'var(--tx-3)' : 'var(--tx)', textDecoration: t.done && !t.skipped ? 'line-through' : 'none' }, text: t.title }),
+    h('div', { style: { fontSize: '12px', color: 'var(--tx-3)', marginTop: '1px' }, text: t.auto ? 'registrado hoje' : t.skipped ? 'pulada hoje' : subLabel(t, aq) })
   ));
 
   if (t.how) lab.appendChild(h('button', { class: 'tb-btn', style: { width: '30px', height: '30px' }, 'aria-label': 'Como fazer', onclick: () => openHow(t) }, icon('info', 'ic ic-sm')));
 
-  if (t.action && !t.auto) {
+  if (!t.auto && !t.done) {
+    lab.appendChild(h('button', {
+      class: 'tb-btn', style: { width: '30px', height: '30px' }, 'aria-label': 'Pular hoje',
+      onclick: () => { skipTask(aq, t.id); ctx.refresh(); }
+    }, icon('clock', 'ic ic-sm')));
+  }
+
+  if (t.action && !t.auto && !t.done) {
     lab.appendChild(h('button', {
       class: 'btn sm', style: { padding: '7px 11px' },
       'aria-label': 'Registrar',

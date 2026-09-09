@@ -8,9 +8,9 @@ import { push, remove, save } from '../store.js';
 import { PARAMS, P, CORE } from '../model.js';
 import {
   latest, lastN, series, trend, trendText, statusOf, statusLabel, target, waterQuality,
-  fmtNum, fmtDate, relDay, describeTest, nextTestDue, num
+  fmtNum, fmtDate, relDay, describeTest, nextTestDue, num, chartEvents
 } from '../engine.js';
-import { lineChart, legend } from '../charts.js';
+import { lineChart, legend, chartColors } from '../charts.js';
 import { paramTile } from './dashboard.js';
 
 /* ================= lista ================= */
@@ -99,13 +99,22 @@ export function paramDetail(ctx, k) {
 
   const ser = series(aq, k);
   if (ser.length >= 2) {
+    const ev = chartEvents(aq);
+    const events = [
+      ...ev.tpas.map((e) => Object.assign({ color: chartColors[5] }, e)),
+      ...ev.doses.map((e) => Object.assign({ color: chartColors[4] }, e))
+    ];
     const card = h('div', { class: 'card' });
     card.appendChild(cardHead('chart', 'Evolução', null));
     const cv = h('canvas', { class: 'chart' });
+    const legendItems = [{ label: def.n, color: chartColors[0] }];
+    if (ev.tpas.length) legendItems.push({ label: 'TPA', color: chartColors[5] });
+    if (ev.doses.length) legendItems.push({ label: 'Dosagem', color: chartColors[4] });
     card.appendChild(h('div', { class: 'card-body' }, h('div', { class: 'chart-wrap' }, cv),
+      (ev.tpas.length || ev.doses.length) ? legend(legendItems) : null,
       h('div', { class: 'note', style: { marginTop: '6px' }, text: 'A faixa verde é a meta que você definiu.' })));
     el.appendChild(card);
-    requestAnimationFrame(() => lineChart(cv, [{ data: ser, fill: true }], { band: [tg.min, tg.max], zeroFloor: k === 'ph' || k === 'temp' ? false : true }));
+    requestAnimationFrame(() => lineChart(cv, [{ data: ser, fill: true }], { band: [tg.min, tg.max], zeroFloor: k === 'ph' || k === 'temp' ? false : true, events }));
   } else {
     el.appendChild(h('div', { class: 'card' }, h('div', { class: 'card-pad' },
       h('div', { class: 'note', text: 'O gráfico aparece a partir de 2 medições deste parâmetro.' }))));
@@ -177,6 +186,20 @@ export function openTestSheet(aq, refresh, focusKey) {
       const render = () => {
         b.innerHTML = '';
         b.appendChild(field('Data e hora', input({ type: 'datetime-local', value: at, oninput: (e) => { at = e.target.value; } })));
+
+        if (aq.tests?.length) {
+          b.appendChild(h('button', {
+            class: 'btn ghost', style: { marginBottom: '14px' },
+            onclick: () => {
+              const last = aq.tests[0];
+              PARAMS.forEach((p) => { if (num(last[p.k]) !== null) vals[p.k] = String(last[p.k]); });
+              if (last.method) method = last.method;
+              showAll = true;
+              render();
+              toast('Valores da última medição preenchidos — revise antes de salvar');
+            }
+          }, icon('refresh', 'ic ic-sm'), `Repetir última medição (${relDay(aq.tests[0].at)})`));
+        }
 
         const keys = showAll ? order : CORE;
         const wrap = h('div');

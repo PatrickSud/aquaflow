@@ -117,7 +117,7 @@ export default function dashboard(ctx) {
   tcard.appendChild(cardHead('clip', `Tarefas de hoje (${doneN}/${todays.length})`, () => ctx.nav('tarefas')));
   if (!todays.length) tcard.appendChild(h('div', { class: 'card-body' }, h('div', { class: 'note', text: 'Nenhuma tarefa ativa. Crie na aba Tarefas.' })));
   else todays.slice(0, 4).forEach((t) => tcard.appendChild(
-    row(t.title, t.auto ? 'registrado hoje' : (t.time || 'sem horário'), {
+    row(t.title, t.auto ? 'registrado hoje' : t.skipped ? 'pulada hoje' : (t.time || 'sem horário'), {
       left: h('button', {
         class: 'chk', style: { padding: '0' }, 'aria-label': 'Concluir',
         onclick: (e) => {
@@ -125,8 +125,8 @@ export default function dashboard(ctx) {
           if (t.auto) { toast('Já consta pelo registro de hoje'); return; }
           toggleTask(aq, t.id); ctx.refresh();
         }
-      }, h('span', { class: 'box', style: t.done ? { background: 'var(--accent)', borderColor: 'var(--accent)', color: '#fff' } : {} }, t.done ? icon('check', 'ic ic-sm') : null)),
-      right: pill(t.done ? 'ok' : null, t.done ? 'Feita' : 'Pendente')
+      }, h('span', { class: 'box', style: t.done ? { background: t.skipped ? 'var(--tx-3)' : 'var(--accent)', borderColor: t.skipped ? 'var(--tx-3)' : 'var(--accent)', color: '#fff' } : {} }, t.done ? icon(t.skipped ? 'clock' : 'check', 'ic ic-sm') : null)),
+      right: t.skipped ? pill(null, 'Pulada') : pill(t.done ? 'ok' : null, t.done ? 'Feita' : 'Pendente')
     })
   ));
   el.appendChild(tcard);
@@ -257,12 +257,17 @@ export function todayTasks(aq) {
     return t.freq === 'unica';
   }).map((t) => {
     const auto = autoDone(aq, t);
-    return Object.assign({}, t, { done: auto || manualDone(aq, t), auto });
+    const skipped = !auto && manualSkipped(aq, t);
+    return Object.assign({}, t, { done: auto || manualDone(aq, t), auto, skipped });
   });
 }
 
 function manualDone(aq, t) {
   return (aq.taskLog || []).some((l) => l.taskId === t.id && sameDay(l.at));
+}
+
+function manualSkipped(aq, t) {
+  return (aq.taskLog || []).some((l) => l.taskId === t.id && sameDay(l.at) && l.skipped);
 }
 
 /** Marca sozinha quando o registro correspondente já entrou hoje — sem trabalho dobrado. */
@@ -286,6 +291,17 @@ export function toggleTask(aq, taskId) {
   const i = aq.taskLog.findIndex((l) => l.taskId === taskId && new Date(l.at).toDateString() === today);
   if (i >= 0) aq.taskLog.splice(i, 1);
   else aq.taskLog.unshift({ taskId, at: new Date().toISOString() });
+  if (aq.taskLog.length > 800) aq.taskLog.length = 800;
+  save();
+}
+
+/** Marca a ocorrência de hoje como pulada, sem desativar a recorrência da tarefa. */
+export function skipTask(aq, taskId) {
+  const today = new Date().toDateString();
+  aq.taskLog = aq.taskLog || [];
+  const i = aq.taskLog.findIndex((l) => l.taskId === taskId && new Date(l.at).toDateString() === today);
+  if (i >= 0) aq.taskLog.splice(i, 1);
+  aq.taskLog.unshift({ taskId, at: new Date().toISOString(), skipped: true });
   if (aq.taskLog.length > 800) aq.taskLog.length = 800;
   save();
 }

@@ -412,6 +412,18 @@ async function callProxy(sys, ctx, q, cfg, history) {
   return String(txt).trim();
 }
 
+/** Testa a conexão configurada com uma pergunta mínima, sem enviar o resumo do
+ *  aquário — só para confirmar que a chave/modelo/servidor realmente respondem. */
+export async function testConnection(cfg) {
+  const sys = 'Você é um verificador de conexão. Responda só com a palavra "ok".';
+  const q = 'teste de conexão';
+  if (cfg.provider === 'gemini') return callGemini(sys, '', q, cfg, []);
+  if (cfg.provider === 'openai') return callOpenAI(sys, '', q, cfg, []);
+  if (cfg.provider === 'anthropic') return callClaude(sys, '', q, cfg, []);
+  if (cfg.provider === 'proxy') return callProxy(sys, '', q, cfg, []);
+  throw new Error('Provedor de IA não configurado.');
+}
+
 export const SUGGESTIONS = [
   'A água está segura?',
   'Posso colocar os peixes?',

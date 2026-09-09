@@ -4,7 +4,7 @@ import { h, icon, cardHead, row, pill, segmented, empty, kv, download, toast } f
 import { PARAMS, P, CORE } from '../model.js';
 import {
   series, latest, trend, trendText, statusOf, statusLabel, timeline, describeTest,
-  fmtNum, fmtDate, relDay, target, num
+  fmtNum, fmtDate, relDay, target, num, chartEvents
 } from '../engine.js';
 import { lineChart, legend, chartColors } from '../charts.js';
 import { tlEl } from './cycling.js';
@@ -32,13 +32,22 @@ export default function history(ctx) {
     chartCard.appendChild(cardHead('chart', mode === 'ciclo' ? 'Amônia · Nitrito · Nitrato' : mode === 'ph' ? 'pH' : 'Temperatura', null));
     const cv = h('canvas', { class: 'chart' });
     const tg = sets.length === 1 ? target(aq, sets[0].k) : null;
+    const ev = chartEvents(aq, range);
+    const events = [
+      ...ev.tpas.map((e) => Object.assign({ color: chartColors[5] }, e)),
+      ...ev.doses.map((e) => Object.assign({ color: chartColors[4] }, e))
+    ];
+    const legendItems = sets.map((s) => ({ label: P[s.k].n, color: chartColors[s.c] }));
+    if (ev.tpas.length) legendItems.push({ label: 'TPA', color: chartColors[5] });
+    if (ev.doses.length) legendItems.push({ label: 'Dosagem', color: chartColors[4] });
     chartCard.appendChild(h('div', { class: 'card-body' },
       h('div', { class: 'chart-wrap' }, cv),
-      legend(sets.map((s) => ({ label: P[s.k].n, color: chartColors[s.c] })))));
+      legend(legendItems)));
     requestAnimationFrame(() => lineChart(cv, data, {
       height: 200,
       band: tg ? [tg.min, tg.max] : null,
-      zeroFloor: !(mode === 'ph' || mode === 'temp')
+      zeroFloor: !(mode === 'ph' || mode === 'temp'),
+      events
     }));
   };
 

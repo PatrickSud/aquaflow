@@ -2,7 +2,7 @@
 
 import { h, icon, mdToHTML, toast, sheet, field, input, select, empty, pill, confirmSheet } from '../ui.js';
 import { state, save } from '../store.js';
-import { localAnswer, aiAnswer, aiReady, SUGGESTIONS, AI_PROVIDERS, DEFAULT_MODELS } from '../ai.js';
+import { localAnswer, aiAnswer, aiReady, SUGGESTIONS, AI_PROVIDERS, DEFAULT_MODELS, testConnection } from '../ai.js';
 import { digest, canAddFish, cyclingStatus, waterQuality, statusLabel } from '../engine.js';
 
 export default function consultor(ctx) {
@@ -151,12 +151,30 @@ export function openAIConfig(ctx) {
         onchange: (e) => { cfg.provider = e.target.value; cfg.model = DEFAULT_MODELS[cfg.provider] || ''; draw(); }
       })));
 
+      const testBtn = () => h('button', {
+        class: 'btn sec', style: { marginBottom: '14px' }, onclick: async (ev) => {
+          const ready = cfg.provider === 'proxy' ? !!cfg.proxyUrl : !!cfg.key;
+          if (!ready) { toast(cfg.provider === 'proxy' ? 'Informe o endereço do servidor primeiro' : 'Cole a chave primeiro', 'bad'); return; }
+          const btn = ev.currentTarget;
+          const orig = btn.textContent;
+          btn.disabled = true; btn.textContent = 'Testando…';
+          try {
+            await testConnection(cfg);
+            toast('Conexão funcionando', 'ok');
+          } catch (err) {
+            toast(err.message, 'bad');
+          }
+          btn.disabled = false; btn.textContent = orig;
+        }
+      }, icon('checkCircle', 'ic ic-sm'), 'Testar conexão');
+
       const draw = () => {
         dyn.innerHTML = '';
         if (cfg.provider === 'proxy') {
           dyn.appendChild(field('Endereço do seu servidor', input({ value: cfg.proxyUrl, placeholder: 'https://meu-proxy.workers.dev', oninput: (e) => { cfg.proxyUrl = e.target.value.trim(); } }),
             'O app envia POST com {system, context, prompt, history} e espera {"reply":"..."} de volta. É a forma segura de não expor a chave.'));
-          dyn.appendChild(h('div', { class: 'note' }, 'Recomendado se você for compartilhar o app com outras pessoas.'));
+          dyn.appendChild(h('div', { class: 'note', style: { marginBottom: '14px' } }, 'Recomendado se você for compartilhar o app com outras pessoas.'));
+          dyn.appendChild(testBtn());
           return;
         }
 
@@ -195,6 +213,8 @@ export function openAIConfig(ctx) {
           }, 'Buscar modelos disponíveis'));
           dyn.appendChild(listBox);
         }
+
+        dyn.appendChild(testBtn());
 
         dyn.appendChild(h('div', { class: 'alert warn' }, icon('alert', 'ic'), h('div', {},
           h('div', { class: 'alert-t', text: 'Sobre guardar a chave no aparelho' }),

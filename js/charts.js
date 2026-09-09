@@ -65,6 +65,25 @@ export function lineChart(canvas, datasets, opts = {}) {
     c.fillText(`${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`, X(t), padT + H + 6);
   }
 
+  // marcadores de eventos (ex.: TPA, dosagem) — linha vertical fina na data do evento
+  if (Array.isArray(opts.events) && opts.events.length) {
+    c.save();
+    c.setLineDash([3, 3]);
+    c.lineWidth = 1.2;
+    opts.events.forEach((e) => {
+      if (e.t == null || e.t < tMin || e.t > tMax) return;
+      c.strokeStyle = e.color || '#8e8e93';
+      const x = X(e.t);
+      c.beginPath(); c.moveTo(x, padT); c.lineTo(x, padT + H); c.stroke();
+    });
+    c.restore();
+    opts.events.forEach((e) => {
+      if (e.t == null || e.t < tMin || e.t > tMax) return;
+      c.fillStyle = e.color || '#8e8e93';
+      c.beginPath(); c.arc(X(e.t), padT, 3, 0, 7); c.fill();
+    });
+  }
+
   // séries
   sets.forEach((d, i) => {
     const col = d.color || COLORS[i % COLORS.length];
