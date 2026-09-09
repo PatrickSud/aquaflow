@@ -153,6 +153,27 @@ export function confirmSheet({ title, message, confirmText = 'Confirmar', danger
   });
 }
 
+/* ---------------- menu do botão + flutuante ---------------- */
+export function fabMenu(items, onClose) {
+  const root = $('#modal-root');
+  const bd = h('div', { class: 'fab-backdrop' });
+  const menu = h('div', { class: 'fab-menu', role: 'menu' });
+  const close = () => {
+    bd.classList.remove('in'); menu.classList.remove('in');
+    setTimeout(() => { bd.remove(); menu.remove(); onClose?.(); }, 180);
+  };
+  items.forEach((it) => {
+    if (!it) return;
+    menu.appendChild(h('button', { onclick: () => { close(); setTimeout(() => it.on?.(), 120); } },
+      h('span', { class: 'fab-item-ic' }, icon(it.icon || 'plus', 'ic ic-sm')),
+      h('span', { text: it.label })));
+  });
+  root.appendChild(bd); root.appendChild(menu);
+  requestAnimationFrame(() => { bd.classList.add('in'); menu.classList.add('in'); });
+  bd.addEventListener('click', close);
+  return { close };
+}
+
 /* ---------------- campos ---------------- */
 export function field(label, control, hint, opt) {
   return h('div', { class: 'f' },

@@ -1,10 +1,10 @@
 /* app.js — inicialização, roteamento por hash e montagem das telas. */
 
 import { load, state, save, active, subscribe } from './store.js';
-import { h, icon, menuSheet, toast } from './ui.js';
+import { h, icon, menuSheet, toast, fabMenu } from './ui.js';
 import { initPWA } from './pwa.js';
 
-import dashboard from './views/dashboard.js';
+import dashboard, { quickActions } from './views/dashboard.js';
 import params, { paramDetail, paramTargets } from './views/params.js';
 import tasks from './views/tasks.js';
 import fauna, { faunaForm, stockingView } from './views/fauna.js';
@@ -18,7 +18,7 @@ import { tpaView, doseView, feedView, diaryView } from './views/logs.js';
 import account from './views/account.js';
 import * as cloud from './cloud.js';
 
-const TABS = ['parametros', 'tarefas', 'aquario', 'fauna', 'consultor'];
+const TABS = ['parametros', 'tarefas', 'aquario', 'fauna', 'ajustes'];
 const el = {};
 let current = '';
 
@@ -108,7 +108,7 @@ function render() {
 
   el.actions.innerHTML = '';
   const acts = (view.actions || []).slice();
-  if (!view.back && route !== 'ajustes') acts.push({ icon: 'gear', label: 'Ajustes', on: () => nav('ajustes') });
+  if (!view.back && route !== 'consultor') acts.push({ icon: 'bulb', label: 'Consultor', on: () => nav('consultor') });
   if (acts.length === 1) {
     const a = acts[0];
     el.actions.appendChild(h('button', { class: 'tb-btn', 'aria-label': a.label, onclick: a.on }, icon(a.icon, 'ic ic-sm')));
@@ -131,6 +131,14 @@ function render() {
   el.view.appendChild(view.el);
   el.view.classList.toggle('no-tabs', !!view.noTabs);
   el.tabbar.hidden = !!view.noTabs;
+
+  /* botão + flutuante: registro rápido de qualquer aba */
+  el.fab.hidden = !!view.noTabs || route === 'consultor';
+  el.fab.onclick = () => {
+    if (el.fabClose) { el.fabClose(); return; }
+    el.fab.classList.add('open');
+    el.fabClose = fabMenu(quickActions(aq, ctx), () => { el.fab.classList.remove('open'); el.fabClose = null; }).close;
+  };
 
   /* abas */
   const tabRoute = TABS.includes(route) ? route
@@ -179,6 +187,7 @@ async function boot() {
   el.view = document.getElementById('view');
   el.tabbar = document.getElementById('tabbar');
   el.topbar = document.getElementById('topbar');
+  el.fab = document.getElementById('fab');
 
   await load();
 
@@ -212,6 +221,7 @@ async function boot() {
   el.topbar.hidden = false;
   el.view.hidden = false;
   el.tabbar.hidden = false;
+  el.fab.hidden = false;
 
   if (!location.hash) location.hash = '#/aquario';
   render();

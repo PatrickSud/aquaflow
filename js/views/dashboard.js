@@ -181,21 +181,6 @@ export default function dashboard(ctx) {
   } else (aq.notes || []).slice(0, 3).forEach((n) => dcard.appendChild(row(n.text.slice(0, 70) + (n.text.length > 70 ? '…' : ''), fmtDate(n.at), { right: n.kind === 'ocorrencia' ? pill('warn', 'Ocorrência') : null })));
   el.appendChild(dcard);
 
-  /* ---- ações rápidas ---- */
-  el.appendChild(h('div', { class: 'sec-title', text: 'Registrar rápido' }));
-  const q = h('div', { class: 'qgrid' });
-  [
-    ['flask', 'Teste de água', () => openTestSheet(aq, ctx.refresh)],
-    ['drop', 'TPA', () => openTPASheet(aq, ctx.refresh)],
-    ['box', 'Dosagem', () => openDoseSheet(aq, ctx.refresh)],
-    ['food', 'Alimentação', () => openFeedSheet(aq, ctx.refresh)],
-    ['fish', 'Peixe', () => ctx.nav('fauna/nova')],
-    ['leaf', 'Planta', () => ctx.nav('plantas/nova')],
-    ['book', 'Nota', () => openNoteSheet(aq, ctx.refresh)],
-    ['alert', 'Ocorrência', () => openNoteSheet(aq, ctx.refresh, 'ocorrencia')]
-  ].forEach(([ic, lb, on]) => q.appendChild(h('button', { class: 'qbtn', onclick: on }, icon(ic, 'ic ic-sm'), h('span', { text: lb }))));
-  el.appendChild(q);
-
   el.appendChild(h('div', { style: { height: '10px' } }));
   el.appendChild(h('button', { class: 'btn sec', onclick: () => ctx.nav('historico') }, icon('chart', 'ic ic-sm'), 'Histórico e gráficos'));
 
@@ -209,6 +194,21 @@ export default function dashboard(ctx) {
 }
 
 /* ---------- helpers exportados ---------- */
+
+/** Ações de registro rápido, usadas no botão + flutuante. */
+export function quickActions(aq, ctx) {
+  return [
+    ['flask', 'Teste de água', () => openTestSheet(aq, ctx.refresh)],
+    ['drop', 'TPA', () => openTPASheet(aq, ctx.refresh)],
+    ['box', 'Dosagem', () => openDoseSheet(aq, ctx.refresh)],
+    ['food', 'Alimentação', () => openFeedSheet(aq, ctx.refresh)],
+    ['fish', 'Peixe', () => ctx.nav('fauna/nova')],
+    ['leaf', 'Planta', () => ctx.nav('plantas/nova')],
+    ['book', 'Nota', () => openNoteSheet(aq, ctx.refresh)],
+    ['alert', 'Ocorrência', () => openNoteSheet(aq, ctx.refresh, 'ocorrencia')]
+  ].map(([icon, label, on]) => ({ icon, label, on }));
+}
+
 export function paramTile(aq, k, onClick) {
   const def = P[k];
   const l = latest(aq, k);
