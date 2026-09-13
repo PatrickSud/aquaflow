@@ -1,6 +1,6 @@
 /* AquaFlow service worker — app shell offline-first.
    Ao publicar uma nova versão, mude VERSION (mantenha igual ao js/version.js). */
-const VERSION = 'v1.4.0';
+const VERSION = 'v1.6.0';
 const SHELL = `aquaflow-shell-${VERSION}`;
 
 const ASSETS = [

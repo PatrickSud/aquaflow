@@ -144,35 +144,47 @@ export function installBanner(onDismiss) {
 }
 
 /* ---------------- service worker ---------------- */
+const SW_MAX_ATTEMPTS = 3;
+
 function registerSW() {
   if (!('serviceWorker' in navigator)) return;
   if (location.protocol === 'file:') return;   // não funciona abrindo o arquivo direto
 
-  window.addEventListener('load', async () => {
-    try {
-      const reg = await navigator.serviceWorker.register('./sw.js');
-
-      reg.addEventListener('updatefound', () => {
-        const nw = reg.installing;
-        nw?.addEventListener('statechange', () => {
-          if (nw.state === 'installed' && navigator.serviceWorker.controller) showUpdate(nw);
-        });
-      });
-
-      if (reg.waiting && navigator.serviceWorker.controller) showUpdate(reg.waiting);
-
-      // procura atualização quando o app volta ao primeiro plano
-      document.addEventListener('visibilitychange', () => { if (!document.hidden) reg.update().catch(() => {}); });
-    } catch (err) {
-      console.warn('SW', err);
-    }
-  });
+  window.addEventListener('load', () => trySW());
 
   let reloaded = false;
   navigator.serviceWorker.addEventListener('controllerchange', () => {
     if (reloaded) return;
     reloaded = true;
   });
+}
+
+/** Registra o service worker com algumas tentativas: numa rede instável (ex.: 3G fraco no
+ *  primeiro acesso), tanto o registro quanto o cache do app shell podem falhar na hora —
+ *  sem retry, o app fica sem modo offline até o usuário recarregar manualmente. */
+async function trySW(attempt = 1) {
+  try {
+    const reg = await navigator.serviceWorker.register('./sw.js');
+
+    reg.addEventListener('updatefound', () => {
+      const nw = reg.installing;
+      nw?.addEventListener('statechange', () => {
+        if (nw.state === 'installed' && navigator.serviceWorker.controller) showUpdate(nw);
+        if (nw.state === 'redundant' && attempt < SW_MAX_ATTEMPTS) {
+          console.warn(`SW instalação falhou, tentativa ${attempt}/${SW_MAX_ATTEMPTS}`);
+          setTimeout(() => trySW(attempt + 1), 3000 * attempt);
+        }
+      });
+    });
+
+    if (reg.waiting && navigator.serviceWorker.controller) showUpdate(reg.waiting);
+
+    // procura atualização quando o app volta ao primeiro plano
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) reg.update().catch(() => {}); });
+  } catch (err) {
+    console.warn('SW', err);
+    if (attempt < SW_MAX_ATTEMPTS) setTimeout(() => trySW(attempt + 1), 3000 * attempt);
+  }
 }
 
 function showUpdate(worker) {

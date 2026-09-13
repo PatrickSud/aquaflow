@@ -59,8 +59,11 @@ export const state = {
   v: 1,
   activeId: null,
   aquariums: [],
+  // cache local de espécies já identificadas pela IA (chave = nome normalizado), para não
+  // repetir a mesma pergunta à IA se o usuário cadastrar a espécie de novo em outro aquário.
+  speciesCache: {},
   settings: {
-    ai: { provider: 'gemini', model: 'gemini-3.5-flash', key: '', endpoint: '', proxyUrl: '' },
+    ai: { provider: 'gemini', model: 'gemini-3.5-flash', key: '', endpoint: '', proxyUrl: '', attachParamsDefault: false },
     installDismissed: false,
     lastSeen: null,
     fbConfig: null,
@@ -90,7 +93,7 @@ export async function load() {
     if (d && typeof d === 'object') {
       Object.assign(state, d);
       state.settings = Object.assign({ ai: {}, installDismissed: false, lastSeen: null, fbConfig: null, syncPhotos: false, autoSync: true, sync: {} }, d.settings || {});
-      state.settings.ai = Object.assign({ provider: 'gemini', model: 'gemini-3.5-flash', key: '', endpoint: '', proxyUrl: '' }, d.settings?.ai || {});
+      state.settings.ai = Object.assign({ provider: 'gemini', model: 'gemini-3.5-flash', key: '', endpoint: '', proxyUrl: '', attachParamsDefault: false }, d.settings?.ai || {});
     }
   } catch (e) { console.error('load', e); }
   return state;

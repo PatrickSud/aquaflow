@@ -21,11 +21,12 @@ import { state, save, active, uid, getPhoto, putPhoto, blobToDataURL, dataURLToB
 
 const SDK = 'https://www.gstatic.com/firebasejs/12.18.0';
 
-/** Coleções espelhadas na nuvem. `chat` e `taskLog` ficam só no aparelho:
- *  conversa do Consultor é longa e local; marcação de tarefa do dia é efêmera.
- *  `dismissedAlerts` também é local: é só uma preferência de "já vi este aviso". */
-export const SYNC_COLLS = ['tests', 'dosings', 'tpas', 'feedings', 'livestock', 'plants', 'tasks', 'notes'];
-const LOCAL_ONLY = new Set([...SYNC_COLLS, 'chat', 'taskLog', 'dismissedAlerts', 'events', 'tombstones', 'id']);
+/** Coleções espelhadas na nuvem — inclui `customSpecies` (peixes cadastrados via IA ou
+ *  manualmente), que sobem e descem como qualquer outro registro. `chats` e `taskLog`
+ *  ficam só no aparelho: conversa do Consultor é longa e local; marcação de tarefa do
+ *  dia é efêmera. `dismissedAlerts` também é local: é só uma preferência de "já vi este aviso". */
+export const SYNC_COLLS = ['tests', 'dosings', 'tpas', 'feedings', 'livestock', 'plants', 'tasks', 'notes', 'customSpecies'];
+const LOCAL_ONLY = new Set([...SYNC_COLLS, 'chats', 'taskLog', 'dismissedAlerts', 'events', 'tombstones', 'id']);
 
 const MAX_PHOTO_B64 = 900000;   // limite de campo do Firestore é 1.048.487 bytes
 
@@ -531,7 +532,7 @@ export async function importRemoteAquarium(aqId) {
     cursor[coll] = maxMs;
     if (aq[coll].some((r) => r.at)) aq[coll].sort((a, b) => new Date(b.at) - new Date(a.at));
   }
-  aq.chat = aq.chat || [];
+  aq.chats = aq.chats || [];
   aq.taskLog = aq.taskLog || [];
   aq.tombstones = [];
 

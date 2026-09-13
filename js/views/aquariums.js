@@ -65,6 +65,8 @@ export function aquariumForm(ctx, editId) {
   let step = 1;
   const useTpl = { on: !ex };
   const usePerfil = { on: false };
+  let existingPhotoURL = null;
+  if (ex?.photo) photoURL(ex.photo).then((u) => { existingPhotoURL = u; if (step === 3) draw(); });
 
   const el = h('div');
   const stepsEl = h('div', { class: 'steps' });
@@ -170,7 +172,7 @@ export function aquariumForm(ctx, editId) {
     }
 
     if (step === 3) {
-      bodyEl.appendChild(field('Foto do aquário', photoPicker(null, (b) => { blob = b; }), null, true));
+      bodyEl.appendChild(field('Foto do aquário', photoPicker(existingPhotoURL, (b) => { blob = b; }), null, true));
       bodyEl.appendChild(field('Observações', textarea({ value: d.notes0 || '', placeholder: 'Ex.: aquário plantado comunitário, foco em Betta…', oninput: (e) => { d.notes0 = e.target.value; } }), null, true));
 
       if (!ex) {

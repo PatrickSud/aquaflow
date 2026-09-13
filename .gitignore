@@ -10,3 +10,7 @@ firestore.rules
 Thumbs.db
 desktop.ini
 .DS_Store
+
+# node_modules só existiria se algum dia os testes ganharem uma dependência externa
+node_modules/
+

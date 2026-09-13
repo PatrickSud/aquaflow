@@ -9,7 +9,7 @@ import params, { paramDetail, paramTargets } from './views/params.js';
 import tasks from './views/tasks.js';
 import fauna, { faunaForm, stockingView } from './views/fauna.js';
 import plants, { plantForm } from './views/plants.js';
-import consultor from './views/consultor.js';
+import consultor, { consultorThread } from './views/consultor.js';
 import settings from './views/settings.js';
 import aquariums, { aquariumForm } from './views/aquariums.js';
 import historyView from './views/history.js';
@@ -74,7 +74,7 @@ function render() {
           : parts[1] === 'nova' ? plantForm(ctx)
             : parts[1] === 'editar' ? plantForm(ctx, parts[2]) : plants(ctx);
         break;
-      case 'consultor': view = consultor(ctx); break;
+      case 'consultor': view = !parts[1] ? consultor(ctx) : consultorThread(ctx, parts[1]); break;
       case 'ajustes': view = settings(ctx); break;
       case 'aquarios':
         view = !parts[1] ? aquariums(ctx)

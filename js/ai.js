@@ -7,9 +7,9 @@
 import {
   digest, systemPrompt, canAddFish, cyclingStatus, alerts, bioload, waterQuality,
   latest, lastN, trend, trendText, tpaCalc, primeDose, stabilityDose, compatibility,
-  riskLabel, nextTestDue, fmtNum, fmtDate, relDay, statusOf, statusLabel, target, ageDays, series
+  riskLabel, nextTestDue, fmtNum, fmtDate, relDay, statusOf, statusLabel, target, ageDays, series, specOf, allSpecies
 } from './engine.js';
-import { PARAMS, P, CORE, SPECIES, SPEC } from './model.js';
+import { PARAMS, P, CORE, SPECIES_ZONA, SPECIES_CAMARAO, SPECIES_PLANTA, SPECIES_BETTA } from './model.js';
 
 /* ================= modo LOCAL ================= */
 
@@ -92,7 +92,7 @@ function ansStocking(aq) {
     if (plan.length) {
       const first = plan[0];
       const c = compatibility(aq, first.spec, first.qty);
-      o += `\n**Primeiro lote do seu plano:** ${first.qty}× ${SPEC[first.spec]?.n || first.spec} — ${c.level === 'ok' ? '🟢' : c.level === 'warn' ? '🟡' : '🔴'} ${riskLabel(c.level)}\n`;
+      o += `\n**Primeiro lote do seu plano:** ${first.qty}× ${specOf(aq, first.spec)?.n || first.spec} — ${c.level === 'ok' ? '🟢' : c.level === 'warn' ? '🟡' : '🔴'} ${riskLabel(c.level)}\n`;
       c.notes.slice(0, 4).forEach((n) => { o += `- ${n}\n`; });
       o += `\nAguarde ${aq.stocking.intervalDays} dias entre lotes e teste amônia e nitrito 24–48 h após cada entrada.\n`;
     }
@@ -192,10 +192,10 @@ function ansCycle(aq) {
 
 function ansCompat(aq, s) {
   let o = head('Compatibilidade');
-  const found = SPECIES.find((sp) => s.includes(sp.n.toLowerCase().split(' ')[0]) || (sp.sci && s.includes(sp.sci.toLowerCase().split(' ')[0])));
+  const found = allSpecies(aq).find((sp) => s.includes(sp.n.toLowerCase().split(' ')[0]) || (sp.sci && s.includes(sp.sci.toLowerCase().split(' ')[0])));
   if (!found) {
     o += 'Diga qual espécie e quantidade você está avaliando que eu analiso contra o volume útil, a fauna atual, os parâmetros medidos e a carga biológica.\n';
-    o += '\nEspécies na base: ' + SPECIES.filter((x) => x.id !== 'outro').map((x) => x.n).join(', ') + '.\n';
+    o += '\nEspécies na base: ' + allSpecies(aq).filter((x) => x.id !== 'outro').map((x) => x.n).join(', ') + '.\n';
     return o + ask('Qual espécie e quantos indivíduos você quer avaliar?');
   }
   const qty = Number((s.match(/(\d+)/) || [])[1]) || found.grupo || 1;
@@ -323,10 +323,38 @@ function friendlyError(status, body, provider) {
   return msg ? `Erro do serviço de IA: ${msg}` : `Erro do serviço de IA (código ${status}).`;
 }
 
-/** Envia a pergunta com o contexto do aquário. history = [{role:'user'|'model', text}] */
-export async function aiAnswer(aq, question, cfg, history = []) {
-  const sys = systemPrompt(aq);
-  const ctx = `CONTEXTO ATUAL DO AQUÁRIO (dados reais registrados pelo usuário; use apenas estes números):\n\n${digest(aq)}`;
+/** Prompt de sistema do modo livre: sem os dados do aquário nem as regras rígidas do modo padrão. */
+function freeSystemPrompt() {
+  return `Você é um consultor de aquarismo experiente, conversando em MODO LIVRE dentro do app AquaFlow.
+
+Neste modo você NÃO está preso aos dados registrados deste aquário específico nem às regras rígidas do modo "Consultor deste aquário". Você pode:
+- Opinar sobre espécies, produtos, marcas, equipamentos e técnicas que não estão cadastrados no app.
+- Discutir assuntos de aquarismo em geral, mesmo que fujam do que foi configurado neste aquário.
+- Trazer recomendações externas, comparações e alternativas, sem se limitar aos parâmetros configurados.
+
+Mesmo assim, mantenha o bom senso técnico: deixe claro quando algo é uma opinião geral (não validada pelos dados deste aquário específico) e avise quando alguma sugestão puder ser arriscada para peixes ou plantas.
+
+Responda sempre em português do Brasil, de forma direta e natural. Você não precisa terminar com uma pergunta obrigatória.`;
+}
+
+function withCtx(ctx, q) {
+  return ctx ? `${ctx}\n\nPERGUNTA DO USUÁRIO:\n${q}` : q;
+}
+
+/** Envia a pergunta ao modelo. Em modo padrão, inclui o contexto e as regras deste aquário.
+ *  Em modo livre (opts.free), a IA responde sem as regras rígidas; se opts.attachParams também
+ *  estiver ligado, os parâmetros atuais vão junto só como referência (não como limite).
+ *  history = [{role:'user'|'model', text}] */
+export async function aiAnswer(aq, question, cfg, history = [], opts = {}) {
+  const free = !!opts.free;
+  const attach = !!opts.attachParams;
+  const sys = free ? freeSystemPrompt() : systemPrompt(aq);
+  let ctx = '';
+  if (!free) {
+    ctx = `CONTEXTO ATUAL DO AQUÁRIO (dados reais registrados pelo usuário; use apenas estes números):\n\n${digest(aq)}`;
+  } else if (attach) {
+    ctx = `PARÂMETROS ATUAIS DESTE AQUÁRIO (apenas para você usar como referência nesta pergunta; você não precisa se limitar só a eles nem seguir as regras rígidas do modo consultor):\n\n${digest(aq)}`;
+  }
 
   if (cfg.provider === 'gemini') return callGemini(sys, ctx, question, cfg, history);
   if (cfg.provider === 'openai') return callOpenAI(sys, ctx, question, cfg, history);
@@ -340,7 +368,7 @@ async function callGemini(sys, ctx, q, cfg, history) {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
   const contents = [];
   history.slice(-8).forEach((m) => contents.push({ role: m.role === 'user' ? 'user' : 'model', parts: [{ text: m.text }] }));
-  contents.push({ role: 'user', parts: [{ text: `${ctx}\n\nPERGUNTA DO USUÁRIO:\n${q}` }] });
+  contents.push({ role: 'user', parts: [{ text: withCtx(ctx, q) }] });
 
   const r = await fetch(url, {
     method: 'POST',
@@ -365,7 +393,7 @@ async function callGemini(sys, ctx, q, cfg, history) {
 async function callOpenAI(sys, ctx, q, cfg, history) {
   const messages = [{ role: 'system', content: sys }];
   history.slice(-8).forEach((m) => messages.push({ role: m.role === 'user' ? 'user' : 'assistant', content: m.text }));
-  messages.push({ role: 'user', content: `${ctx}\n\nPERGUNTA DO USUÁRIO:\n${q}` });
+  messages.push({ role: 'user', content: withCtx(ctx, q) });
   const r = await fetch(cfg.endpoint || 'https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${cfg.key}` },
@@ -381,7 +409,7 @@ async function callOpenAI(sys, ctx, q, cfg, history) {
 async function callClaude(sys, ctx, q, cfg, history) {
   const messages = [];
   history.slice(-8).forEach((m) => messages.push({ role: m.role === 'user' ? 'user' : 'assistant', content: m.text }));
-  messages.push({ role: 'user', content: `${ctx}\n\nPERGUNTA DO USUÁRIO:\n${q}` });
+  messages.push({ role: 'user', content: withCtx(ctx, q) });
   const r = await fetch(cfg.endpoint || 'https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
@@ -422,6 +450,102 @@ export async function testConnection(cfg) {
   if (cfg.provider === 'anthropic') return callClaude(sys, '', q, cfg, []);
   if (cfg.provider === 'proxy') return callProxy(sys, '', q, cfg, []);
   throw new Error('Provedor de IA não configurado.');
+}
+
+/* ================= identificação de espécie (Fauna) ================= */
+
+const SPECIES_JSON_SYS = 'Você é um banco de dados técnico de aquarismo de água doce. Responda SEMPRE apenas com um objeto JSON válido, sem ```, sem comentários e sem nenhum texto fora do JSON.';
+
+function speciesPrompt(name) {
+  return `Descreva, para uso em um app de aquarismo, a espécie/animal: "${name}".
+
+Responda apenas um objeto JSON com exatamente estas chaves:
+{
+  "found": true ou false,
+  "reason": "só se found=false: por que não dá pra identificar (em português)",
+  "n": "nome popular em português",
+  "sci": "nome científico ou vazio",
+  "adult": número (tamanho adulto médio em cm),
+  "zona": "fundo" | "meia-água" | "superfície" | "vidros",
+  "bio": número de 0.1 a 3 (carga biológica relativa; neon ≈ 0.5, coridora ≈ 1, peixe grande ≥ 2),
+  "grupo": inteiro (mínimo de indivíduos recomendado; 1 se solitário),
+  "temp": [minimo, maximo] em °C,
+  "ph": [minimo, maximo],
+  "camarao": "self" | "baixo" | "medio" | "alto" (risco que oferece a camarões; "self" se a própria espécie for camarão/invertebrado),
+  "planta": "baixo" | "medio" | "alto" (risco/dano que oferece a plantas),
+  "betta": "self" | "ok" | "atencao" | "risco" (convivência com Betta macho; "self" se for o próprio Betta),
+  "obs": "observação curta e prática em português (1-2 frases)"
+}
+
+Se "${name}" não for uma espécie real de aquarismo de água doce/comunitário ou o nome não for reconhecível, responda found=false e explique em "reason". Não invente números — use valores técnicos reais e conhecidos da espécie.`;
+}
+
+const ZONA_VALS = SPECIES_ZONA.map((o) => o.v);
+const CAMARAO_VALS = SPECIES_CAMARAO.map((o) => o.v);
+const PLANTA_VALS = SPECIES_PLANTA.map((o) => o.v);
+const BETTA_VALS = SPECIES_BETTA.map((o) => o.v);
+
+function invalidSpeciesJSON(raw, msg) {
+  const err = new Error(msg);
+  err.raw = raw;
+  return err;
+}
+
+function parseSpeciesJSON(raw) {
+  let json;
+  try {
+    const m = String(raw).match(/\{[\s\S]*\}/);
+    json = JSON.parse(m ? m[0] : raw);
+  } catch (e) {
+    throw invalidSpeciesJSON(raw, 'A IA não respondeu em um formato que eu conseguisse entender (não veio um JSON válido).');
+  }
+  if (!json || typeof json !== 'object') throw invalidSpeciesJSON(raw, 'A IA não respondeu em um formato que eu conseguisse entender.');
+
+  if (json.found === false) {
+    const err = invalidSpeciesJSON(raw, json.reason || 'A IA não reconheceu essa espécie.');
+    err.notFound = true;
+    throw err;
+  }
+
+  const n = String(json.n || '').trim();
+  if (!n) throw invalidSpeciesJSON(raw, 'A resposta da IA veio sem o nome da espécie.');
+  if (!ZONA_VALS.includes(json.zona)) throw invalidSpeciesJSON(raw, `A IA respondeu uma "zona" inesperada (${json.zona}).`);
+  if (!CAMARAO_VALS.includes(json.camarao)) throw invalidSpeciesJSON(raw, `A IA respondeu um risco de "camarao" inesperado (${json.camarao}).`);
+  if (!PLANTA_VALS.includes(json.planta)) throw invalidSpeciesJSON(raw, `A IA respondeu um risco de "planta" inesperado (${json.planta}).`);
+  if (!BETTA_VALS.includes(json.betta)) throw invalidSpeciesJSON(raw, `A IA respondeu uma convivência com "betta" inesperada (${json.betta}).`);
+
+  const range = (v, d) => (Array.isArray(v) && v.length === 2 && Number.isFinite(Number(v[0])) && Number.isFinite(Number(v[1])) ? [Number(v[0]), Number(v[1])] : d);
+  const numOr = (v, d) => (Number.isFinite(Number(v)) ? Number(v) : d);
+
+  return {
+    n,
+    sci: String(json.sci || '').trim(),
+    adult: numOr(json.adult, 5),
+    zona: json.zona,
+    bio: Math.min(3, Math.max(0.1, numOr(json.bio, 1))),
+    grupo: Math.max(1, Math.round(numOr(json.grupo, 1))),
+    temp: range(json.temp, [22, 28]),
+    ph: range(json.ph, [6.0, 8.0]),
+    camarao: json.camarao,
+    planta: json.planta,
+    betta: json.betta,
+    obs: String(json.obs || '').trim()
+  };
+}
+
+/** Pergunta à IA as características técnicas de uma espécie fora da base fixa do app.
+ *  Retorna um objeto pronto para virar uma entrada de aq.customSpecies (sem id).
+ *  Lança erro com .raw (texto bruto da IA) e .notFound (quando a IA não reconheceu a espécie). */
+export async function identifySpeciesAI(name, cfg) {
+  if (!aiReady(cfg)) throw new Error('Conecte uma IA em "Configurar IA" para usar esta função.');
+  const q = speciesPrompt(name);
+  let raw;
+  if (cfg.provider === 'gemini') raw = await callGemini(SPECIES_JSON_SYS, '', q, cfg, []);
+  else if (cfg.provider === 'openai') raw = await callOpenAI(SPECIES_JSON_SYS, '', q, cfg, []);
+  else if (cfg.provider === 'anthropic') raw = await callClaude(SPECIES_JSON_SYS, '', q, cfg, []);
+  else if (cfg.provider === 'proxy') raw = await callProxy(SPECIES_JSON_SYS, '', q, cfg, []);
+  else throw new Error('Provedor de IA não configurado.');
+  return parseSpeciesJSON(raw);
 }
 
 export const SUGGESTIONS = [

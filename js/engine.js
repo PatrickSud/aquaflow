@@ -24,7 +24,9 @@ export function fmtNum(v, dec = 2) {
   if (v === null || v === undefined || v === '') return '—';
   const n = Number(v);
   if (!Number.isFinite(n)) return '—';
-  const s = n.toFixed(dec).replace(/\.?0+$/, '');
+  let s = n.toFixed(dec);
+  // só corta zero à direita da parte decimal — sem isso, "80" (sem ponto) virava "8"
+  if (s.includes('.')) s = s.replace(/0+$/, '').replace(/\.$/, '');
   return (s === '' || s === '-' ? '0' : s).replace('.', ',');
 }
 export function fmtDate(iso, withTime = true) {
@@ -316,6 +318,20 @@ export function canAddFish(aq) {
   return R;
 }
 
+/* ---------------- espécies (base fixa + catálogo customizado por aquário) ---------------- */
+/** Uma espécie pode vir da base fixa do app OU ter sido cadastrada pelo usuário via IA
+ *  (aq.customSpecies). Toda leitura de espécie deve passar por aqui, nunca usar SPEC[] direto
+ *  quando o id pode ser de um peixe adicionado pela IA. */
+export function specOf(aq, id) {
+  const custom = (aq?.customSpecies || []).find((s) => s.id === id);
+  return custom || SPEC[id] || SPEC.outro;
+}
+
+/** Lista de espécies para exibir em seletores: a base fixa + as que este aquário já cadastrou via IA. */
+export function allSpecies(aq) {
+  return [...SPECIES, ...(aq?.customSpecies || [])];
+}
+
 /* ---------------- carga biológica ---------------- */
 /** Capacidade estimada em "unidades de carga" para o volume útil.
  *  Referência conservadora para plantado comunitário: ~1 unidade / 10 L úteis. */
@@ -326,7 +342,7 @@ export function bioload(aq) {
   const items = [];
   for (const it of aq.livestock || []) {
     if (it.status === 'obito' || it.status === 'removido') continue;
-    const sp = SPEC[it.spec] || SPEC.outro;
+    const sp = specOf(aq, it.spec);
     const b = (it.bio ?? sp.bio) * (num(it.qty) || 0);
     used += b;
     items.push({ it, sp, b });
@@ -339,7 +355,7 @@ export function bioStatus(pct) { return pct < 70 ? 'ok' : pct <= 100 ? 'warn' : 
 
 /* ---------------- compatibilidade ---------------- */
 export function compatibility(aq, specId, qty = 1) {
-  const sp = SPEC[specId] || SPEC.outro;
+  const sp = specOf(aq, specId);
   const notes = [];
   let level = 'ok';
   const bump = (l) => { if (l === 'bad' || level === 'bad') level = 'bad'; else if (l === 'warn') level = 'warn'; };
@@ -347,7 +363,7 @@ export function compatibility(aq, specId, qty = 1) {
   const vol = num(aq.volUtil) || 0;
   const live = (aq.livestock || []).filter((x) => x.status !== 'obito' && x.status !== 'removido');
   const hasBetta = live.some((x) => x.spec === 'betta');
-  const hasShrimp = live.some((x) => (SPEC[x.spec] || {}).camarao === 'self');
+  const hasShrimp = live.some((x) => specOf(aq, x.spec).camarao === 'self');
 
   // volume
   const minVol = Math.max(20, sp.adult * 6);
@@ -372,8 +388,8 @@ export function compatibility(aq, specId, qty = 1) {
   if (specId === 'betta') {
     notes.push('Betta exige fluxo brando, tampa sempre fechada e nenhuma decoração com rebarba.');
     notes.push('Deve ser o último peixe a entrar no comunitário.');
-    const provoc = live.filter((x) => (SPEC[x.spec] || {}).betta === 'risco');
-    if (provoc.length) { notes.push(`Já há espécie(s) de risco para o Betta: ${provoc.map((x) => (SPEC[x.spec] || {}).n).join(', ')}.`); bump('bad'); }
+    const provoc = live.filter((x) => specOf(aq, x.spec).betta === 'risco');
+    if (provoc.length) { notes.push(`Já há espécie(s) de risco para o Betta: ${provoc.map((x) => specOf(aq, x.spec).n).join(', ')}.`); bump('bad'); }
     if (hasShrimp) { notes.push('Há camarões no aquário: o Betta costuma predar filhotes.'); bump('warn'); }
   } else if (hasBetta) {
     if (sp.betta === 'risco') { notes.push('Alto risco de perseguição/mordida de nadadeiras com o Betta macho presente.'); bump('bad'); }
@@ -383,8 +399,8 @@ export function compatibility(aq, specId, qty = 1) {
 
   // camarões
   if (sp.camarao === 'self') {
-    const preds = live.filter((x) => ['alto', 'medio'].includes((SPEC[x.spec] || {}).camarao));
-    if (preds.length) { notes.push(`Risco de predação por: ${preds.map((x) => (SPEC[x.spec] || {}).n).join(', ')}. Só com muitos esconderijos e musgo.`); bump(preds.some((x) => (SPEC[x.spec] || {}).camarao === 'alto') ? 'bad' : 'warn'); }
+    const preds = live.filter((x) => ['alto', 'medio'].includes(specOf(aq, x.spec).camarao));
+    if (preds.length) { notes.push(`Risco de predação por: ${preds.map((x) => specOf(aq, x.spec).n).join(', ')}. Só com muitos esconderijos e musgo.`); bump(preds.some((x) => specOf(aq, x.spec).camarao === 'alto') ? 'bad' : 'warn'); }
   }
 
   // neritina precisa de maturidade
@@ -724,8 +740,8 @@ export function timeline(aq) {
   if (peakAt) ev.push({ at: peakAt, s: 'warn', t: 'Pico de amônia registrado', d: `${fmtNum(peak, 3)} ppm.` });
 
   (aq.livestock || []).forEach((l) => {
-    if (l.entryDate) ev.push({ at: l.entryDate + 'T12:00:00', s: 'info', t: `Entrada de fauna: ${l.name || SPEC[l.spec]?.n || 'espécie'}`, d: `${l.qty} indivíduo(s).` });
-    if (l.status === 'obito' && l.diedAt) ev.push({ at: l.diedAt, s: 'bad', t: `Óbito: ${l.name || SPEC[l.spec]?.n}`, d: l.notes || '' });
+    if (l.entryDate) ev.push({ at: l.entryDate + 'T12:00:00', s: 'info', t: `Entrada de fauna: ${l.name || specOf(aq, l.spec)?.n || 'espécie'}`, d: `${l.qty} indivíduo(s).` });
+    if (l.status === 'obito' && l.diedAt) ev.push({ at: l.diedAt, s: 'bad', t: `Óbito: ${l.name || specOf(aq, l.spec)?.n}`, d: l.notes || '' });
   });
   (aq.tpas || []).forEach((t) => ev.push({ at: t.at, s: 'info', t: `TPA de ${fmtNum(t.pct, 0)}%`, d: `${fmtNum(t.liters, 1)} L trocados.` }));
   (aq.notes || []).forEach((n) => ev.push({ at: n.at, s: n.kind === 'ocorrencia' ? 'warn' : 'info', t: n.kind === 'ocorrencia' ? 'Ocorrência' : 'Nota do diário', d: n.text }));
@@ -791,13 +807,13 @@ export function digest(aq) {
   const live = (aq.livestock || []).filter((x) => x.status !== 'obito' && x.status !== 'removido');
   L.push(`FAUNA ATUAL (${live.reduce((s, x) => s + (num(x.qty) || 0), 0)} indivíduos):`);
   if (!live.length) L.push('- nenhuma (aquário sem peixes).');
-  live.forEach((x) => L.push(`- ${x.qty}× ${x.name || SPEC[x.spec]?.n || '?'} · saúde: ${x.health || 'não informada'} · entrada: ${x.entryDate || '?'}${x.notes ? ' · ' + x.notes : ''}`));
+  live.forEach((x) => L.push(`- ${x.qty}× ${x.name || specOf(aq, x.spec)?.n || '?'} · saúde: ${x.health || 'não informada'} · entrada: ${x.entryDate || '?'}${x.notes ? ' · ' + x.notes : ''}`));
   const gone = (aq.livestock || []).filter((x) => x.status === 'obito');
-  if (gone.length) L.push(`ÓBITOS registrados: ${gone.map((x) => `${x.qty}× ${x.name || SPEC[x.spec]?.n} (${fmtDate(x.diedAt, false)})`).join('; ')}`);
+  if (gone.length) L.push(`ÓBITOS registrados: ${gone.map((x) => `${x.qty}× ${x.name || specOf(aq, x.spec)?.n} (${fmtDate(x.diedAt, false)})`).join('; ')}`);
   L.push(`CARGA BIOLÓGICA estimada: ${bl.used} de ${bl.capacity} unidades (${bl.pct}% da capacidade para ${bl.vol} L úteis).`);
 
   if ((aq.stocking?.plan || []).length) {
-    L.push(`PLANO DE POVOAMENTO (configurável, intervalo ${aq.stocking.intervalDays} dias): ${aq.stocking.plan.map((p, i) => `${i + 1}) ${p.qty}× ${SPEC[p.spec]?.n || p.spec}${p.done ? ' [já introduzido]' : ''}`).join(' → ')}`);
+    L.push(`PLANO DE POVOAMENTO (configurável, intervalo ${aq.stocking.intervalDays} dias): ${aq.stocking.plan.map((p, i) => `${i + 1}) ${p.qty}× ${specOf(aq, p.spec)?.n || p.spec}${p.done ? ' [já introduzido]' : ''}`).join(' → ')}`);
   }
 
   L.push('');

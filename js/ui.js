@@ -7,6 +7,7 @@ export function h(tag, attrs = {}, ...kids) {
     if (k === 'class') e.className = v;
     else if (k === 'html') e.innerHTML = v;
     else if (k === 'text') e.textContent = v;
+    else if (k === 'value') e.value = v; // propriedade, não atributo — <textarea> ignora o atributo "value"
     else if (k === 'style' && typeof v === 'object') Object.assign(e.style, v);
     else if (k.startsWith('on') && typeof v === 'function') e.addEventListener(k.slice(2), v);
     else if (v === true) e.setAttribute(k, '');

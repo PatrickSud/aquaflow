@@ -102,7 +102,78 @@ Esse último passo existe por um motivo: os nomes dos modelos do Google mudam co
 
 **Sobre a chave ficar guardada no celular:** para um app pessoal, é aceitável — ela fica no armazenamento do navegador, no seu aparelho. Toque em **"Ver exatamente o que é enviado"** no app: ele mostra, literalmente, o resumo técnico que sai daí. Nenhuma foto é enviada.
 
-**Se um dia você compartilhar o app com outras pessoas, não distribua sua chave.** Nesse caso use a opção **"Meu próprio servidor / proxy"**: um Cloudflare Worker gratuito (100 mil requisições por dia, sem cartão) guarda a chave do lado do servidor. O app envia `{system, context, prompt, history}` e espera `{"reply":"..."}` de volta. Se chegar a esse ponto, me chame que eu monto.
+**Se um dia você compartilhar o app com outras pessoas, não distribua sua chave.** Nesse caso use a opção **"Meu próprio servidor / proxy"**: um Cloudflare Worker gratuito (100 mil requisições por dia, sem cartão) guarda a chave do lado do servidor. O app envia `{system, context, prompt, history}` e espera `{"reply":"..."}` de volta. O passo a passo pronto está logo abaixo.
+
+### Passo a passo: montar o proxy (Cloudflare Worker)
+
+Tudo pelo navegador, sem instalar nada (sem `wrangler`, sem linha de comando).
+
+1. Crie uma conta grátis em [dash.cloudflare.com](https://dash.cloudflare.com) (não pede cartão).
+2. No menu à esquerda, **Workers & Pages** → **Create** → **Create Worker**.
+3. Dê um nome (ex.: `aquaflow-proxy`) → **Deploy**. Ele cria um worker de exemplo — tudo bem, você vai substituir o código.
+4. Clique em **Edit code** e apague o conteúdo. Cole exatamente isto:
+
+```js
+export default {
+  async fetch(request, env) {
+    const CORS = {
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'POST, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type'
+    };
+    if (request.method === 'OPTIONS') return new Response(null, { headers: CORS });
+    if (request.method !== 'POST') return json({ error: 'Método não permitido' }, 405, CORS);
+
+    let body;
+    try { body = await request.json(); } catch { return json({ error: 'JSON inválido' }, 400, CORS); }
+
+    const { system = '', context = '', prompt = '', history = [] } = body;
+    if (!prompt) return json({ error: 'Faltou o campo "prompt".' }, 400, CORS);
+
+    const model = 'gemini-3.5-flash'; // troque aqui se quiser usar outro modelo Gemini
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
+
+    const contents = history.map((m) => ({
+      role: m.role === 'user' ? 'user' : 'model',
+      parts: [{ text: m.text }]
+    }));
+    contents.push({ role: 'user', parts: [{ text: context ? `${context}\n\nPERGUNTA DO USUÁRIO:\n${prompt}` : prompt }] });
+
+    const r = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': env.GEMINI_API_KEY },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: system }] },
+        contents,
+        generationConfig: { temperature: 0.4, maxOutputTokens: 1400 }
+      })
+    });
+
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) return json({ error: j?.error?.message || `Erro do Gemini (${r.status})` }, r.status, CORS);
+
+    const reply = (j.candidates?.[0]?.content?.parts || []).map((p) => p.text || '').join('').trim();
+    if (!reply) return json({ error: 'O Gemini respondeu vazio.' }, 502, CORS);
+
+    return json({ reply }, 200, CORS);
+  }
+};
+
+function json(obj, status, headers) {
+  return new Response(JSON.stringify(obj), { status, headers: { ...headers, 'Content-Type': 'application/json' } });
+}
+```
+
+5. **Save and deploy**.
+6. Guarde a chave do lado do servidor, não no código: **Settings → Variables and Secrets → Add → Secret**. Nome: `GEMINI_API_KEY`. Valor: a mesma chave do passo 1 desta seção (aistudio.google.com). **Deploy** de novo para aplicar.
+7. Copie a URL do worker — algo como `https://aquaflow-proxy.SEU-USUARIO.workers.dev`.
+8. No app: **Consultor → ícone de ajustes → Serviço → "Meu próprio servidor / proxy"** → cole essa URL → **Testar conexão**.
+
+Pronto: a partir daqui, quem usar o app manda perguntas para o *seu* worker, e só o worker conhece a chave do Gemini — ela nunca chega ao celular de ninguém.
+
+**Sobre o CORS aberto (`Access-Control-Allow-Origin: '*'`):** deixa qualquer site chamar seu worker. Para uso com um grupo pequeno de pessoas isso é aceitável (o pior que alguém de fora faz é consumir sua cota gratuita, não ler dados de ninguém). Se quiser fechar mais, troque o `'*'` pelo endereço exato do seu GitHub Pages, ex.: `'https://SEU_USUARIO.github.io'`.
+
+**Limite gratuito do Cloudflare Workers:** 100.000 requisições por dia, sem cartão. Some-se ao limite do próprio Gemini (seção acima) — o Gemini costuma esgotar primeiro.
 
 ---
 

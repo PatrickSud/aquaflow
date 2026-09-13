@@ -1,0 +1,9 @@
+{
+  "name": "aquaflow",
+  "private": true,
+  "type": "module",
+  "description": "AquaFlow — PWA de consultoria de aquarismo. Sem build: os arquivos em js/ são servidos direto ao navegador. Este package.json existe só para rodar os testes do motor de decisão (engine.js) com o test runner nativo do Node.",
+  "scripts": {
+    "test": "node --test"
+  }
+}

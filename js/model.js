@@ -90,6 +90,32 @@ export const SPECIES = [
 
 export const SPEC = Object.fromEntries(SPECIES.map((s) => [s.id, s]));
 
+/* ---------------- vocabulário de espécie (usado no cadastro manual e na validação
+   da resposta da IA — fauna.js e ai.js compartilham estas mesmas listas) ---------------- */
+export const SPECIES_ZONA = [
+  { v: 'fundo', n: 'Fundo' },
+  { v: 'meia-água', n: 'Meia-água' },
+  { v: 'superfície', n: 'Superfície' },
+  { v: 'vidros', n: 'Vidros (algas/biofilme)' }
+];
+export const SPECIES_CAMARAO = [
+  { v: 'self', n: 'É o próprio camarão/invertebrado' },
+  { v: 'baixo', n: 'Baixo risco para camarões' },
+  { v: 'medio', n: 'Risco médio para camarões' },
+  { v: 'alto', n: 'Alto risco para camarões' }
+];
+export const SPECIES_PLANTA = [
+  { v: 'baixo', n: 'Baixo risco para plantas' },
+  { v: 'medio', n: 'Risco médio para plantas' },
+  { v: 'alto', n: 'Alto risco para plantas' }
+];
+export const SPECIES_BETTA = [
+  { v: 'self', n: 'É o próprio Betta' },
+  { v: 'ok', n: 'Convive bem com Betta' },
+  { v: 'atencao', n: 'Convive com atenção' },
+  { v: 'risco', n: 'Alto risco de conflito com Betta' }
+];
+
 /* ---------------- plantas ---------------- */
 export const PLANT_STATES = [
   { v: 'adapt', n: 'Em adaptação', s: 'warn' },
@@ -201,7 +227,8 @@ export function newAquarium(over = {}) {
     taskLog: [],
     notes: [],
     events: [],
-    chat: [],
+    chats: [],
+    customSpecies: [],
     dismissedAlerts: [],
     stocking: { plan: [], intervalDays: 8 }
   }, over);
