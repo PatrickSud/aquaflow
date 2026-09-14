@@ -454,6 +454,7 @@ async function syncPhotos(uidKey, aq, meta, res) {
   (aq.plants || []).forEach((p) => p.photo && ids.add(p.photo));
   (aq.notes || []).forEach((n) => n.photo && ids.add(n.photo));
   (aq.livestock || []).forEach((x) => x.photo && ids.add(x.photo));
+  (aq.customSpecies || []).forEach((s) => s.photo && ids.add(s.photo));
 
   for (const id of ids) {
     const local = await getPhoto(id);

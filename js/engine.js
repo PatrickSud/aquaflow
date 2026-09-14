@@ -334,13 +334,16 @@ export function allSpecies(aq) {
 
 /* ---------------- carga biológica ---------------- */
 const PLANT_BONUS = { none: 0, baixa: 0.05, moderada: 0.12, densa: 0.2 };
-const FILTER_REF_TURNOVER = 5; // giro de referência: ~5x o volume útil por hora
+const FILTER_REF_TURNOVER = 4; // giro de referência: ~4x o volume útil por hora (mínimo usual p/ comunitário/plantado)
+const CAPACITY_PER_L = 8; // 1 unidade de carga a cada 8 L úteis
 
 /** Capacidade estimada em "unidades de carga" para o volume útil.
- *  Base conservadora: ~1 unidade / 10 L úteis — igual a antes se nada mais for informado.
+ *  Base conservadora: ~1 unidade / 8 L úteis se nada mais for informado.
  *  Dois ajustes opcionais, cada um baseado em dado que o próprio usuário registra:
- *  - filtragem: giro real (vazão do filtro ÷ volume útil) comparado a uma referência de 5x/h.
- *    Sem a vazão informada, o fator fica neutro (1×) — não inventa nem penaliza.
+ *  - filtragem: giro real (vazão do filtro ÷ volume útil) comparado a uma referência de 4x/h
+ *    (giro geralmente citado como mínimo adequado para comunitário/plantado — abaixo disso,
+ *    a capacidade cai; bem acima, sobe um pouco). Sem a vazão informada, o fator fica neutro
+ *    (1×) — não inventa nem penaliza.
  *  - plantio: bônus modesto pela densidade de plantio escolhida pelo usuário (plantas
  *    absorvem parte da amônia/nitrato, mas o app não tem como medir isso com precisão).
  *  Margem de segurança: os dois ajustes juntos nunca aumentam a capacidade em mais de 50% —
@@ -348,7 +351,7 @@ const FILTER_REF_TURNOVER = 5; // giro de referência: ~5x o volume útil por ho
  *  dá para povoar mais só porque o equipamento e as plantas estão bons. */
 export function bioload(aq) {
   const vol = num(aq.volUtil) || 0;
-  const baseCapacity = vol / 10;
+  const baseCapacity = vol / CAPACITY_PER_L;
 
   const vazao = num(aq.equip?.vazao);
   const turnover = vazao !== null && vol > 0 ? vazao / vol : null;

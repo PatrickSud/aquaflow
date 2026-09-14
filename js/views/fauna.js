@@ -76,6 +76,8 @@ export default function fauna(ctx) {
 
   el.appendChild(h('button', { class: 'btn', onclick: addAction }, icon(addIcon, 'ic ic-sm'), addLabel));
   el.appendChild(h('div', { style: { height: '9px' } }));
+  el.appendChild(h('button', { class: 'btn sec', onclick: () => ctx.nav('fauna/especies') }, icon('book', 'ic ic-sm'), `Minhas espécies${(aq.customSpecies || []).length ? ` (${aq.customSpecies.length})` : ''}`));
+  el.appendChild(h('div', { style: { height: '9px' } }));
   el.appendChild(h('button', { class: 'btn sec', onclick: () => ctx.nav('povoamento') }, icon('cal', 'ic ic-sm'), 'Plano de povoamento'));
   el.appendChild(h('div', { style: { height: '9px' } }));
   el.appendChild(h('button', { class: 'btn sec', onclick: () => openCompatCheck(aq) }, icon('shield', 'ic ic-sm'), 'Verificar compatibilidade'));
@@ -277,7 +279,7 @@ export function openAISpeciesAdd(ctx) {
       b.appendChild(h('div', { class: 'note', style: { marginBottom: '12px' } },
         'Digite o nome da espécie (popular ou científico). A IA identifica tamanho, faixas de água, cardume e riscos, e o app cadastra automaticamente essa espécie e a fauna — inclusive na nuvem, se você sincroniza.'));
       b.appendChild(field('Nome da espécie', input({ placeholder: 'Ex.: Corydora Sterbai, Danio rerio…', oninput: (e) => { name = e.target.value; } })));
-      b.appendChild(field('Quantidade', input({ type: 'number', min: '1', value: '1', oninput: (e) => { qty = num(e.target.value) || 1; } })));
+      b.appendChild(field('Quantidade', input({ type: 'number', min: '1', value: '1', oninput: (e) => { qty = num(e.target.value) || 1; } }), 'Usada só se você escolher "Adicionar ao aquário" — não é obrigatória para apenas cadastrar a espécie.'));
 
       const resultBox = h('div');
       b.appendChild(resultBox);
@@ -333,30 +335,43 @@ export function openAISpeciesAdd(ctx) {
             h('div', { class: 'note', style: { marginTop: '8px' }, text: 'Identificado por IA — confira se os dados condizem com o que você conhece da espécie antes de confirmar.' })
           )));
 
-        resultBox.appendChild(h('button', {
-          class: 'btn', style: { marginTop: '10px' }, onclick: () => {
-            const doAdd = () => {
+        resultBox.appendChild(h('div', { class: 'btn-row', style: { marginTop: '10px' } },
+          h('button', {
+            class: 'btn sec', onclick: () => {
               const now = new Date().toISOString();
               aq.customSpecies = aq.customSpecies || [];
               aq.customSpecies.push(Object.assign({ id, source: 'ia', createdAt: now, updatedAt: now }, sp));
-              aq.livestock = aq.livestock || [];
-              aq.livestock.unshift({ id: uid(), spec: id, name: sp.n, qty, color: '#1a7ff0', health: 'ok', entryDate: todayLocal(), notes: 'Identificado e adicionado com auxílio de IA.', status: 'ativo', createdAt: now, updatedAt: now });
               save({ immediate: true });
-              toast(`${sp.n} adicionado à fauna`, 'ok');
+              toast(`${sp.n} cadastrada — sem adicionar ao aquário`, 'ok');
               close();
               ctx.refresh();
-            };
-            if (comp.level === 'bad') {
-              confirmSheet({
-                title: '🔴 Alto risco — adicionar mesmo assim?',
-                message: comp.notes.slice(0, 3).join(' ') + '\n\nSe o animal já está no aquário, registre para o app poder monitorar. Se ainda não, resolva os pontos acima primeiro.',
-                confirmText: 'Adicionar mesmo assim', danger: true, onConfirm: doAdd
-              });
-              return;
             }
-            doAdd();
-          }
-        }, icon('check', 'ic ic-sm'), 'Adicionar ao aquário'));
+          }, 'Só cadastrar a espécie'),
+          h('button', {
+            class: 'btn', onclick: () => {
+              const doAdd = () => {
+                const now = new Date().toISOString();
+                aq.customSpecies = aq.customSpecies || [];
+                aq.customSpecies.push(Object.assign({ id, source: 'ia', createdAt: now, updatedAt: now }, sp));
+                aq.livestock = aq.livestock || [];
+                aq.livestock.unshift({ id: uid(), spec: id, name: sp.n, qty, color: '#1a7ff0', health: 'ok', entryDate: todayLocal(), notes: 'Identificado e adicionado com auxílio de IA.', status: 'ativo', createdAt: now, updatedAt: now });
+                save({ immediate: true });
+                toast(`${sp.n} adicionado à fauna`, 'ok');
+                close();
+                ctx.refresh();
+              };
+              if (comp.level === 'bad') {
+                confirmSheet({
+                  title: '🔴 Alto risco — adicionar mesmo assim?',
+                  message: comp.notes.slice(0, 3).join(' ') + '\n\nSe o animal já está no aquário, registre para o app poder monitorar. Se ainda não, resolva os pontos acima primeiro.',
+                  confirmText: 'Adicionar mesmo assim', danger: true, onConfirm: doAdd
+                });
+                return;
+              }
+              doAdd();
+            }
+          }, icon('check', 'ic ic-sm'), 'Adicionar ao aquário')
+        ));
       }
     },
     actions: (close) => h('button', { class: 'btn sec', text: 'Fechar', onclick: () => close() })
@@ -384,12 +399,15 @@ export function openManualSpeciesAdd(ctx) {
 
       const formBox = h('div');
       const qtyBox = h('div');
+      const footBox = h('div');
       b.appendChild(formBox);
       b.appendChild(qtyBox);
+      b.appendChild(footBox);
 
       const drawForm = () => {
         formBox.innerHTML = '';
         qtyBox.innerHTML = '';
+        footBox.innerHTML = '';
 
         if (existingId) {
           const known = specOf(aq, existingId);
@@ -421,12 +439,10 @@ export function openManualSpeciesAdd(ctx) {
           formBox.appendChild(field('Observações', textarea({ value: sp.obs, placeholder: 'Cuidados, comportamento, alimentação…', oninput: (e) => { sp.obs = e.target.value; } }), null, true));
         }
 
-        qtyBox.appendChild(field('Quantidade a adicionar agora', input({ type: 'number', min: '1', value: String(qty), oninput: (e) => { qty = num(e.target.value) || 1; } })));
-      };
-      drawForm();
+        qtyBox.appendChild(field('Quantidade a adicionar agora', input({ type: 'number', min: '1', value: String(qty), oninput: (e) => { qty = num(e.target.value) || 1; } }),
+          existingId ? null : 'Usada só se você escolher "Adicionar ao aquário".'));
 
-      b.appendChild(h('button', {
-        class: 'btn', style: { marginTop: '6px' }, onclick: () => {
+        const addToTank = () => {
           if (existingId) {
             const known = specOf(aq, existingId);
             const comp = compatibility(aq, existingId, qty);
@@ -475,11 +491,134 @@ export function openManualSpeciesAdd(ctx) {
             return;
           }
           doAdd();
+        };
+
+        if (existingId) {
+          footBox.appendChild(h('button', { class: 'btn', style: { marginTop: '6px' }, onclick: addToTank }, icon('check', 'ic ic-sm'), 'Adicionar ao aquário'));
+        } else {
+          footBox.appendChild(h('div', { class: 'btn-row', style: { marginTop: '6px' } },
+            h('button', {
+              class: 'btn sec', onclick: () => {
+                if (!sp.n.trim()) { toast('Informe o nome da espécie', 'bad'); return; }
+                const id = 'custom_' + uid();
+                const now = new Date().toISOString();
+                aq.customSpecies = aq.customSpecies || [];
+                aq.customSpecies.push(Object.assign({ id, source: 'manual', createdAt: now, updatedAt: now }, sp));
+                save({ immediate: true });
+                toast(`${sp.n} cadastrada — sem adicionar ao aquário`, 'ok');
+                close();
+                ctx.refresh();
+              }
+            }, 'Só cadastrar a espécie'),
+            h('button', { class: 'btn', onclick: addToTank }, icon('check', 'ic ic-sm'), 'Adicionar ao aquário')
+          ));
         }
-      }, icon('check', 'ic ic-sm'), 'Adicionar ao aquário'));
+      };
+      drawForm();
     },
     actions: (close) => h('button', { class: 'btn sec', text: 'Fechar', onclick: () => close() })
   });
+}
+
+/* ================= catálogo de espécies deste aquário ================= */
+export function speciesCatalogView(ctx) {
+  const aq = ctx.aq;
+  const list = aq.customSpecies || [];
+  const el = h('div');
+
+  el.appendChild(h('div', { class: 'note', style: { marginBottom: '12px' } },
+    'Espécies que você cadastrou manualmente ou identificou com a IA neste aquário. A base fixa do app (Neon, Corydora, Betta…) não aparece aqui porque é compartilhada por todos os aquários e não é editável.'));
+
+  if (!list.length) {
+    el.appendChild(h('div', { class: 'card' }, empty('book', 'Nenhuma espécie cadastrada ainda. Use "Adicionar peixe com IA" ou o cadastro manual na tela de Fauna.')));
+  } else {
+    const c = h('div', { class: 'card' });
+    list.forEach((s) => {
+      const usedBy = (aq.livestock || []).filter((x) => x.spec === s.id).reduce((sum, x) => sum + (num(x.qty) || 0), 0);
+      const thumb = h('div', { style: { width: '34px', height: '34px', borderRadius: '9px', background: 'var(--card-2)', color: 'var(--accent)', display: 'grid', placeItems: 'center', flex: '0 0 auto', overflow: 'hidden' } }, icon('fish', 'ic ic-sm'));
+      if (s.photo) photoURL(s.photo).then((u) => { if (u) { thumb.innerHTML = ''; thumb.appendChild(h('img', { src: u, alt: '', style: { width: '100%', height: '100%', objectFit: 'cover' } })); } });
+      c.appendChild(row(s.n,
+        `${s.sci ? s.sci + ' · ' : ''}adulto ~${s.adult} cm · ${usedBy ? `${usedBy} na fauna atual` : 'não usada na fauna atual'}`,
+        { left: thumb, onClick: () => ctx.nav('fauna/especies/editar/' + s.id) }));
+    });
+    el.appendChild(c);
+  }
+
+  return { title: 'Minhas espécies', back: true, el };
+}
+
+export function speciesForm(ctx, editId) {
+  const aq = ctx.aq;
+  const existing = (aq.customSpecies || []).find((s) => s.id === editId);
+  if (!existing) {
+    setTimeout(() => ctx.nav('fauna/especies'), 0);
+    return { title: 'Espécie', back: true, el: h('div') };
+  }
+  const d = Object.assign({}, existing, { temp: [...existing.temp], ph: [...existing.ph] });
+  let blob = null;
+  const el = h('div');
+
+  const photoSlot = h('div');
+  photoSlot.appendChild(photoPicker(null, (b) => { blob = b; }));
+  if (d.photo) photoURL(d.photo).then((u) => {
+    if (!u) return;
+    photoSlot.innerHTML = '';
+    photoSlot.appendChild(photoPicker(u, (b) => { blob = b; }));
+  });
+
+  el.appendChild(field('Foto de referência', photoSlot, 'Ajuda a reconhecer a espécie — é separada da foto de cada animal cadastrado na Fauna.', true));
+  el.appendChild(field('Nome popular', input({ value: d.n, oninput: (e) => { d.n = e.target.value; } })));
+  el.appendChild(field('Nome científico', input({ value: d.sci || '', placeholder: 'Opcional', oninput: (e) => { d.sci = e.target.value; } }), null, true));
+  el.appendChild(h('div', { class: 'grid2' },
+    field('Tamanho adulto (cm)', input({ type: 'number', step: '0.5', min: '0.5', value: String(d.adult), oninput: (e) => { d.adult = num(e.target.value) || 5; } })),
+    field('Cardume mínimo', input({ type: 'number', min: '1', value: String(d.grupo), oninput: (e) => { d.grupo = Math.max(1, Math.round(num(e.target.value) || 1)); } }))
+  ));
+  el.appendChild(field('Zona do aquário', select(SPECIES_ZONA.map((o) => ({ v: o.v, n: o.n, sel: o.v === d.zona })), { onchange: (e) => { d.zona = e.target.value; } })));
+  el.appendChild(field('Carga biológica relativa', input({ type: 'number', step: '0.1', min: '0.1', max: '3', value: String(d.bio), oninput: (e) => { d.bio = Math.min(3, Math.max(0.1, num(e.target.value) || 1)); } }), 'Referência: neon ≈ 0.5, coridora ≈ 1, peixe grande ≥ 2.'));
+  el.appendChild(h('div', { class: 'grid2' },
+    field('Temp. mínima (°C)', input({ type: 'number', step: '0.5', value: String(d.temp[0]), oninput: (e) => { d.temp[0] = num(e.target.value) ?? d.temp[0]; } })),
+    field('Temp. máxima (°C)', input({ type: 'number', step: '0.5', value: String(d.temp[1]), oninput: (e) => { d.temp[1] = num(e.target.value) ?? d.temp[1]; } }))
+  ));
+  el.appendChild(h('div', { class: 'grid2' },
+    field('pH mínimo', input({ type: 'number', step: '0.1', value: String(d.ph[0]), oninput: (e) => { d.ph[0] = num(e.target.value) ?? d.ph[0]; } })),
+    field('pH máximo', input({ type: 'number', step: '0.1', value: String(d.ph[1]), oninput: (e) => { d.ph[1] = num(e.target.value) ?? d.ph[1]; } }))
+  ));
+  el.appendChild(field('Risco para camarões', select(SPECIES_CAMARAO.map((o) => ({ v: o.v, n: o.n, sel: o.v === d.camarao })), { onchange: (e) => { d.camarao = e.target.value; } })));
+  el.appendChild(field('Risco para plantas', select(SPECIES_PLANTA.map((o) => ({ v: o.v, n: o.n, sel: o.v === d.planta })), { onchange: (e) => { d.planta = e.target.value; } })));
+  el.appendChild(field('Convivência com Betta macho', select(SPECIES_BETTA.map((o) => ({ v: o.v, n: o.n, sel: o.v === d.betta })), { onchange: (e) => { d.betta = e.target.value; } })));
+  el.appendChild(field('Observações', textarea({ value: d.obs || '', placeholder: 'Cuidados, comportamento, alimentação…', oninput: (e) => { d.obs = e.target.value; } }), null, true));
+
+  el.appendChild(h('button', {
+    class: 'btn', onclick: async () => {
+      if (!d.n.trim()) { toast('Informe o nome da espécie', 'bad'); return; }
+      if (blob) {
+        const pid = uid();
+        await putPhoto(pid, blob);
+        if (d.photo) { forgetPhotoURL(d.photo); await delPhoto(d.photo); }
+        d.photo = pid;
+      }
+      d.updatedAt = new Date().toISOString();
+      Object.assign(existing, d);
+      await save({ immediate: true });
+      toast('Espécie atualizada', 'ok');
+      ctx.nav('fauna/especies');
+    }
+  }, 'Salvar'));
+
+  const usedBy = (aq.livestock || []).filter((x) => x.spec === editId).reduce((sum, x) => sum + (num(x.qty) || 0), 0);
+  el.appendChild(h('div', { style: { height: '9px' } }));
+  el.appendChild(h('button', {
+    class: 'btn danger', onclick: () => confirmSheet({
+      title: 'Excluir espécie do catálogo?',
+      message: usedBy
+        ? `${usedBy} animal(is) na fauna atual usam esta espécie — eles continuam registrados, mas perdem os dados técnicos (voltam ao padrão genérico "Outra espécie"). Considere editar ou remover essa fauna antes.`
+        : 'Nenhum animal da fauna atual usa esta espécie agora.',
+      confirmText: 'Excluir', danger: true,
+      onConfirm: async () => { await remove('customSpecies', editId); ctx.nav('fauna/especies'); }
+    })
+  }, icon('trash', 'ic ic-sm'), 'Excluir espécie'));
+
+  return { title: 'Editar espécie', back: true, el };
 }
 
 /* ================= plano de povoamento ================= */

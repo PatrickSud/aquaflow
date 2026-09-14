@@ -7,7 +7,7 @@ import { initPWA } from './pwa.js';
 import dashboard, { quickActions } from './views/dashboard.js';
 import params, { paramDetail, paramTargets } from './views/params.js';
 import tasks from './views/tasks.js';
-import fauna, { faunaForm, stockingView } from './views/fauna.js';
+import fauna, { faunaForm, stockingView, speciesCatalogView, speciesForm } from './views/fauna.js';
 import plants, { plantForm } from './views/plants.js';
 import consultor, { consultorThread } from './views/consultor.js';
 import settings from './views/settings.js';
@@ -66,7 +66,9 @@ function render() {
       case 'fauna':
         view = !parts[1] ? fauna(ctx)
           : parts[1] === 'nova' ? faunaForm(ctx)
-            : parts[1] === 'editar' ? faunaForm(ctx, parts[2]) : fauna(ctx);
+            : parts[1] === 'editar' ? faunaForm(ctx, parts[2])
+              : parts[1] === 'especies' ? (!parts[2] ? speciesCatalogView(ctx) : parts[2] === 'editar' ? speciesForm(ctx, parts[3]) : fauna(ctx))
+                : fauna(ctx);
         break;
       case 'povoamento': view = stockingView(ctx); break;
       case 'plantas':

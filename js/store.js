@@ -119,7 +119,7 @@ export async function removeAquarium(id) {
   const i = state.aquariums.findIndex((a) => a.id === id);
   if (i < 0) return;
   const aq = state.aquariums[i];
-  const ids = [aq.photo, ...(aq.plants || []).map((p) => p.photo), ...(aq.notes || []).map((n) => n.photo), ...(aq.livestock || []).map((x) => x.photo)].filter(Boolean);
+  const ids = [aq.photo, ...(aq.plants || []).map((p) => p.photo), ...(aq.notes || []).map((n) => n.photo), ...(aq.livestock || []).map((x) => x.photo), ...(aq.customSpecies || []).map((s) => s.photo)].filter(Boolean);
   for (const p of ids) { forgetPhotoURL(p); await delPhoto(p); }
   state.aquariums.splice(i, 1);
   if (state.activeId === id) state.activeId = state.aquariums[0]?.id || null;
@@ -181,6 +181,7 @@ export async function exportJSON() {
     (a.plants || []).forEach((p) => p.photo && ids.add(p.photo));
     (a.notes || []).forEach((n) => n.photo && ids.add(n.photo));
     (a.livestock || []).forEach((x) => x.photo && ids.add(x.photo));
+    (a.customSpecies || []).forEach((s) => s.photo && ids.add(s.photo));
   });
   for (const id of ids) {
     const b = await getPhoto(id);

@@ -58,9 +58,9 @@ describe('fmtNum', () => {
 
 /* ================= carga biológica ================= */
 describe('bioload', () => {
-  test('capacidade é 1 unidade a cada 10 L úteis', () => {
+  test('capacidade é 1 unidade a cada 8 L úteis', () => {
     const aq = aquario();
-    assert.equal(bioload(aq).capacity, 8); // 80 / 10
+    assert.equal(bioload(aq).capacity, 10); // 80 / 8
   });
   test('soma o fator de carga de cada espécie viva, ignorando óbito e removido', () => {
     const aq = aquario({
@@ -88,26 +88,31 @@ describe('bioload', () => {
     assert.equal(bl.capacity, bl.baseCapacity);
   });
   test('filtro fraco reduz a capacidade, com piso de 60% da base', () => {
-    // 200 L/h em 80 L úteis = giro de 2,5×/h (referência é 5×/h) → fator abaixo do piso, trava em 0,6
-    const bl = bioload(aquario({ equip: { vazao: 200 } }));
+    // 100 L/h em 80 L úteis = giro de 1,25×/h (referência é 4×/h) → fator abaixo do piso, trava em 0,6
+    const bl = bioload(aquario({ equip: { vazao: 100 } }));
     assert.equal(bl.filterFactor, 0.6);
-    assert.equal(bl.capacity, 4.8); // 8 × 0,6
+    assert.equal(bl.capacity, 6); // 10 × 0,6
+  });
+  test('filtro dentro da faixa usual (4-6×/h) não penaliza — pelo menos fica neutro', () => {
+    // 350 L/h em 80 L úteis = giro de 4,375×/h — dentro da faixa comum p/ comunitário/plantado
+    const bl = bioload(aquario({ equip: { vazao: 350 } }));
+    assert.ok(bl.filterFactor >= 1, `esperava fator >= 1, veio ${bl.filterFactor}`);
   });
   test('filtro forte aumenta a capacidade, com teto de 140% da base', () => {
-    // 800 L/h em 80 L úteis = giro de 10×/h → dobro da referência, trava em 1,4
+    // 800 L/h em 80 L úteis = giro de 10×/h → bem acima da referência, trava em 1,4
     const bl = bioload(aquario({ equip: { vazao: 800 } }));
     assert.equal(bl.filterFactor, 1.4);
-    assert.equal(bl.capacity, 11.2); // 8 × 1,4
+    assert.equal(bl.capacity, 14); // 10 × 1,4
   });
   test('plantio denso dá um bônus modesto de 20% sobre a base', () => {
     const bl = bioload(aquario({ plantDensity: 'densa' }));
     assert.equal(bl.plantFactor, 1.2);
-    assert.equal(bl.capacity, 9.6); // 8 × 1,2
+    assert.equal(bl.capacity, 12); // 10 × 1,2
   });
   test('margem de segurança: filtro forte + plantio denso juntos não passam de 150% da base', () => {
     // 1,4 (filtro) × 1,2 (plantio) = 1,68 sem o teto — a margem de segurança trava em 1,5
     const bl = bioload(aquario({ equip: { vazao: 800 }, plantDensity: 'densa' }));
-    assert.equal(bl.capacity, 12); // 8 × 1,5, não 8 × 1,68
+    assert.equal(bl.capacity, 15); // 10 × 1,5, não 10 × 1,68
   });
 });
 

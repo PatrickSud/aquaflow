@@ -356,14 +356,16 @@ export async function aiAnswer(aq, question, cfg, history = [], opts = {}) {
     ctx = `PARÂMETROS ATUAIS DESTE AQUÁRIO (apenas para você usar como referência nesta pergunta; você não precisa se limitar só a eles nem seguir as regras rígidas do modo consultor):\n\n${digest(aq)}`;
   }
 
-  if (cfg.provider === 'gemini') return callGemini(sys, ctx, question, cfg, history);
-  if (cfg.provider === 'openai') return callOpenAI(sys, ctx, question, cfg, history);
-  if (cfg.provider === 'anthropic') return callClaude(sys, ctx, question, cfg, history);
-  if (cfg.provider === 'proxy') return callProxy(sys, ctx, question, cfg, history);
-  throw new Error('Provedor de IA não configurado.');
+  let r;
+  if (cfg.provider === 'gemini') r = await callGemini(sys, ctx, question, cfg, history);
+  else if (cfg.provider === 'openai') r = await callOpenAI(sys, ctx, question, cfg, history);
+  else if (cfg.provider === 'anthropic') r = await callClaude(sys, ctx, question, cfg, history);
+  else if (cfg.provider === 'proxy') r = await callProxy(sys, ctx, question, cfg, history);
+  else throw new Error('Provedor de IA não configurado.');
+  return r.text;
 }
 
-async function callGemini(sys, ctx, q, cfg, history) {
+async function callGemini(sys, ctx, q, cfg, history, maxTokens = 1400) {
   const model = cfg.model || DEFAULT_MODELS.gemini;
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
   const contents = [];
@@ -376,7 +378,7 @@ async function callGemini(sys, ctx, q, cfg, history) {
     body: JSON.stringify({
       systemInstruction: { parts: [{ text: sys }] },
       contents,
-      generationConfig: { temperature: 0.4, maxOutputTokens: 1400 }
+      generationConfig: { temperature: 0.4, maxOutputTokens: maxTokens }
     })
   });
   const j = await r.json().catch(() => ({}));
@@ -387,26 +389,27 @@ async function callGemini(sys, ctx, q, cfg, history) {
     if (cand?.finishReason === 'SAFETY') throw new Error('A resposta foi bloqueada pelos filtros do serviço de IA. Tente reformular a pergunta.');
     throw new Error('O serviço de IA respondeu vazio. Tente novamente.');
   }
-  return txt;
+  return { text: txt, truncated: cand?.finishReason === 'MAX_TOKENS' };
 }
 
-async function callOpenAI(sys, ctx, q, cfg, history) {
+async function callOpenAI(sys, ctx, q, cfg, history, maxTokens = 1400) {
   const messages = [{ role: 'system', content: sys }];
   history.slice(-8).forEach((m) => messages.push({ role: m.role === 'user' ? 'user' : 'assistant', content: m.text }));
   messages.push({ role: 'user', content: withCtx(ctx, q) });
   const r = await fetch(cfg.endpoint || 'https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${cfg.key}` },
-    body: JSON.stringify({ model: cfg.model || DEFAULT_MODELS.openai, messages, temperature: 0.4, max_tokens: 1400 })
+    body: JSON.stringify({ model: cfg.model || DEFAULT_MODELS.openai, messages, temperature: 0.4, max_tokens: maxTokens })
   });
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(friendlyError(r.status, j, 'openai'));
-  const txt = j.choices?.[0]?.message?.content?.trim();
+  const choice = j.choices?.[0];
+  const txt = choice?.message?.content?.trim();
   if (!txt) throw new Error('O serviço de IA respondeu vazio.');
-  return txt;
+  return { text: txt, truncated: choice?.finish_reason === 'length' };
 }
 
-async function callClaude(sys, ctx, q, cfg, history) {
+async function callClaude(sys, ctx, q, cfg, history, maxTokens = 1400) {
   const messages = [];
   history.slice(-8).forEach((m) => messages.push({ role: m.role === 'user' ? 'user' : 'assistant', content: m.text }));
   messages.push({ role: 'user', content: withCtx(ctx, q) });
@@ -418,13 +421,13 @@ async function callClaude(sys, ctx, q, cfg, history) {
       'anthropic-version': '2023-06-01',
       'anthropic-dangerous-direct-browser-access': 'true'
     },
-    body: JSON.stringify({ model: cfg.model || DEFAULT_MODELS.anthropic, max_tokens: 1400, system: sys, messages })
+    body: JSON.stringify({ model: cfg.model || DEFAULT_MODELS.anthropic, max_tokens: maxTokens, system: sys, messages })
   });
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(friendlyError(r.status, j, 'anthropic'));
   const txt = (j.content || []).map((b) => b.text || '').join('').trim();
   if (!txt) throw new Error('O serviço de IA respondeu vazio.');
-  return txt;
+  return { text: txt, truncated: j.stop_reason === 'max_tokens' };
 }
 
 async function callProxy(sys, ctx, q, cfg, history) {
@@ -437,7 +440,7 @@ async function callProxy(sys, ctx, q, cfg, history) {
   if (!r.ok) throw new Error(friendlyError(r.status, j, 'proxy'));
   const txt = j.reply || j.text || j.answer;
   if (!txt) throw new Error('O seu servidor respondeu sem o campo "reply".');
-  return String(txt).trim();
+  return { text: String(txt).trim(), truncated: false };
 }
 
 /** Testa a conexão configurada com uma pergunta mínima, sem enviar o resumo do
@@ -445,11 +448,13 @@ async function callProxy(sys, ctx, q, cfg, history) {
 export async function testConnection(cfg) {
   const sys = 'Você é um verificador de conexão. Responda só com a palavra "ok".';
   const q = 'teste de conexão';
-  if (cfg.provider === 'gemini') return callGemini(sys, '', q, cfg, []);
-  if (cfg.provider === 'openai') return callOpenAI(sys, '', q, cfg, []);
-  if (cfg.provider === 'anthropic') return callClaude(sys, '', q, cfg, []);
-  if (cfg.provider === 'proxy') return callProxy(sys, '', q, cfg, []);
-  throw new Error('Provedor de IA não configurado.');
+  let r;
+  if (cfg.provider === 'gemini') r = await callGemini(sys, '', q, cfg, []);
+  else if (cfg.provider === 'openai') r = await callOpenAI(sys, '', q, cfg, []);
+  else if (cfg.provider === 'anthropic') r = await callClaude(sys, '', q, cfg, []);
+  else if (cfg.provider === 'proxy') r = await callProxy(sys, '', q, cfg, []);
+  else throw new Error('Provedor de IA não configurado.');
+  return r.text;
 }
 
 /* ================= identificação de espécie (Fauna) ================= */
@@ -485,19 +490,20 @@ const CAMARAO_VALS = SPECIES_CAMARAO.map((o) => o.v);
 const PLANTA_VALS = SPECIES_PLANTA.map((o) => o.v);
 const BETTA_VALS = SPECIES_BETTA.map((o) => o.v);
 
-function invalidSpeciesJSON(raw, msg) {
-  const err = new Error(msg);
+function invalidSpeciesJSON(raw, msg, truncated) {
+  const err = new Error(truncated ? 'A resposta da IA foi cortada por exceder o limite de tamanho antes de terminar o JSON. Tente de novo — geralmente resolve na segunda tentativa.' : msg);
   err.raw = raw;
+  err.truncated = !!truncated;
   return err;
 }
 
-function parseSpeciesJSON(raw) {
+function parseSpeciesJSON(raw, truncated) {
   let json;
   try {
     const m = String(raw).match(/\{[\s\S]*\}/);
     json = JSON.parse(m ? m[0] : raw);
   } catch (e) {
-    throw invalidSpeciesJSON(raw, 'A IA não respondeu em um formato que eu conseguisse entender (não veio um JSON válido).');
+    throw invalidSpeciesJSON(raw, 'A IA não respondeu em um formato que eu conseguisse entender (não veio um JSON válido).', truncated);
   }
   if (!json || typeof json !== 'object') throw invalidSpeciesJSON(raw, 'A IA não respondeu em um formato que eu conseguisse entender.');
 
@@ -535,17 +541,17 @@ function parseSpeciesJSON(raw) {
 
 /** Pergunta à IA as características técnicas de uma espécie fora da base fixa do app.
  *  Retorna um objeto pronto para virar uma entrada de aq.customSpecies (sem id).
- *  Lança erro com .raw (texto bruto da IA) e .notFound (quando a IA não reconheceu a espécie). */
+ *  Lança erro com .raw (texto bruto da IA), .notFound e .truncated (resposta cortada por tamanho). */
 export async function identifySpeciesAI(name, cfg) {
   if (!aiReady(cfg)) throw new Error('Conecte uma IA em "Configurar IA" para usar esta função.');
   const q = speciesPrompt(name);
-  let raw;
-  if (cfg.provider === 'gemini') raw = await callGemini(SPECIES_JSON_SYS, '', q, cfg, []);
-  else if (cfg.provider === 'openai') raw = await callOpenAI(SPECIES_JSON_SYS, '', q, cfg, []);
-  else if (cfg.provider === 'anthropic') raw = await callClaude(SPECIES_JSON_SYS, '', q, cfg, []);
-  else if (cfg.provider === 'proxy') raw = await callProxy(SPECIES_JSON_SYS, '', q, cfg, []);
+  let r;
+  if (cfg.provider === 'gemini') r = await callGemini(SPECIES_JSON_SYS, '', q, cfg, [], 2000);
+  else if (cfg.provider === 'openai') r = await callOpenAI(SPECIES_JSON_SYS, '', q, cfg, [], 2000);
+  else if (cfg.provider === 'anthropic') r = await callClaude(SPECIES_JSON_SYS, '', q, cfg, [], 2000);
+  else if (cfg.provider === 'proxy') r = await callProxy(SPECIES_JSON_SYS, '', q, cfg, []);
   else throw new Error('Provedor de IA não configurado.');
-  return parseSpeciesJSON(raw);
+  return parseSpeciesJSON(r.text, r.truncated);
 }
 
 /* ================= ordem do plano de povoamento (Fauna → Plano de povoamento) ================= */
@@ -579,19 +585,19 @@ ${lines}
 Responda apenas um objeto JSON:
 {
   "order": ["id do primeiro lote a entrar", "id do segundo", ...],
-  "justification": "explicação objetiva em português (2-4 frases) do motivo desta ordem"
+  "justification": "resumo direto do raciocínio geral, em português, em no máximo 3 frases curtas — NÃO narre lote por lote, só as razões principais que pesaram na ordem"
 }
 
-"order" deve conter exatamente os mesmos ids listados acima, cada um uma única vez, apenas reordenados — nunca invente ids novos nem omita algum.`;
+"order" deve conter exatamente os mesmos ids listados acima, cada um uma única vez, apenas reordenados — nunca invente ids novos nem omita algum. Seja conciso na justificativa: respostas longas são cortadas.`;
 }
 
-function parseStockingJSON(raw, planIds) {
+function parseStockingJSON(raw, planIds, truncated) {
   let json;
   try {
     const m = String(raw).match(/\{[\s\S]*\}/);
     json = JSON.parse(m ? m[0] : raw);
   } catch (e) {
-    throw invalidSpeciesJSON(raw, 'A IA não respondeu em um formato que eu conseguisse entender (não veio um JSON válido).');
+    throw invalidSpeciesJSON(raw, 'A IA não respondeu em um formato que eu conseguisse entender (não veio um JSON válido).', truncated);
   }
   if (!json || typeof json !== 'object') throw invalidSpeciesJSON(raw, 'A IA não respondeu em um formato que eu conseguisse entender.');
 
@@ -611,19 +617,19 @@ function parseStockingJSON(raw, planIds) {
 
 /** Pede à IA uma sugestão de ordem para os lotes de aq.stocking.plan, com justificativa.
  *  Não altera nada — só devolve { order, justification } para o chamador decidir se aplica.
- *  Lança erro com .raw (texto bruto da IA) quando a resposta não é utilizável. */
+ *  Lança erro com .raw (texto bruto da IA) e .truncated quando a resposta não é utilizável. */
 export async function planStockingOrderAI(aq, cfg) {
   if (!aiReady(cfg)) throw new Error('Conecte uma IA em "Configurar IA" para usar esta função.');
   const plan = aq.stocking?.plan || [];
   if (plan.length < 2) throw new Error('Adicione pelo menos 2 lotes ao plano para pedir uma ordem à IA.');
   const q = stockingPrompt(aq, plan);
-  let raw;
-  if (cfg.provider === 'gemini') raw = await callGemini(STOCKING_JSON_SYS, '', q, cfg, []);
-  else if (cfg.provider === 'openai') raw = await callOpenAI(STOCKING_JSON_SYS, '', q, cfg, []);
-  else if (cfg.provider === 'anthropic') raw = await callClaude(STOCKING_JSON_SYS, '', q, cfg, []);
-  else if (cfg.provider === 'proxy') raw = await callProxy(STOCKING_JSON_SYS, '', q, cfg, []);
+  let r;
+  if (cfg.provider === 'gemini') r = await callGemini(STOCKING_JSON_SYS, '', q, cfg, [], 3000);
+  else if (cfg.provider === 'openai') r = await callOpenAI(STOCKING_JSON_SYS, '', q, cfg, [], 3000);
+  else if (cfg.provider === 'anthropic') r = await callClaude(STOCKING_JSON_SYS, '', q, cfg, [], 3000);
+  else if (cfg.provider === 'proxy') r = await callProxy(STOCKING_JSON_SYS, '', q, cfg, []);
   else throw new Error('Provedor de IA não configurado.');
-  return parseStockingJSON(raw, plan.map((p) => p.id));
+  return parseStockingJSON(r.text, plan.map((p) => p.id), r.truncated);
 }
 
 export const SUGGESTIONS = [
