@@ -55,6 +55,25 @@ const bubble = (m) => {
   return b;
 };
 
+/** Conteúdo compartilhado do seletor de modo (Consultor do aquário / Modo livre) + o
+ *  switch de "incluir parâmetros", usado tanto na tela de lista (antes de começar uma
+ *  conversa) quanto dentro de uma conversa já aberta (recolhível). */
+function drawModeControls(container, { free, attach, onFree, onAttach }) {
+  container.innerHTML = '';
+  container.appendChild(h('div', { class: 'card-pad', style: { paddingBottom: free ? '10px' : '14px' } }, segmented(
+    [{ v: false, n: 'Consultor do aquário' }, { v: true, n: 'Modo livre' }],
+    !!free,
+    onFree
+  )));
+  if (free) {
+    container.appendChild(h('div', { class: 'card-row' },
+      h('div', { class: 'row-main' },
+        h('div', { class: 'row-title', text: 'Incluir parâmetros deste aquário' }),
+        h('div', { class: 'row-sub', text: 'A IA usa como referência, mas continua livre para opinar além deles' })),
+      switchBtn(!!attach, onAttach)));
+  }
+}
+
 /* ================= lista de conversas ================= */
 export default function consultor(ctx) {
   const aq = ctx.aq;
@@ -107,10 +126,27 @@ export default function consultor(ctx) {
     q = (q || '').trim();
     if (!q) return;
     const now = nowISO();
-    const c = { id: uid(), title: threadTitle(q), createdAt: now, updatedAt: now, messages: [{ role: 'user', text: q }] };
+    const c = {
+      id: uid(), title: threadTitle(q), createdAt: now, updatedAt: now,
+      free: !!cfg.freeDefault, attachParams: !!cfg.attachParamsDefault,
+      messages: [{ role: 'user', text: q }]
+    };
     chats.unshift(c);
     save({ immediate: true });
     ctx.nav('consultor/' + c.id);
+  }
+
+  if (aiReady(cfg)) {
+    el.appendChild(h('div', { class: 'sec-title', text: 'Modo da próxima conversa' }));
+    const startControls = h('div', { class: 'card' });
+    const drawStartControls = () => drawModeControls(startControls, {
+      free: cfg.freeDefault,
+      attach: cfg.attachParamsDefault,
+      onFree: (v) => { cfg.freeDefault = v; save(); drawStartControls(); },
+      onAttach: (v) => { cfg.attachParamsDefault = v; save(); }
+    });
+    drawStartControls();
+    el.appendChild(startControls);
   }
 
   const chipsRow = h('div', { class: 'chips' });
@@ -208,34 +244,46 @@ export function consultorThread(ctx, id) {
   el.appendChild(chat);
   renderChat();
 
-  const composeWrap = h('div', { style: { position: 'sticky', bottom: '0', background: 'linear-gradient(to top, var(--bg) 70%, transparent)', paddingTop: '8px' } });
+  const composeWrap = h('div', { style: { position: 'sticky', bottom: 'calc(var(--tabh) + var(--safe-b))', background: 'linear-gradient(to top, var(--bg) 70%, transparent)', paddingTop: '8px' } });
 
+  // recolhido por padrão: o modo já foi escolhido na tela anterior ao criar a conversa;
+  // aqui é só pra ajustar sem precisar sair do chat.
+  let controlsExpanded = false;
   const controlsCard = h('div', { class: 'card' });
   const drawControls = () => {
     controlsCard.innerHTML = '';
-    controlsCard.appendChild(h('div', { class: 'card-pad', style: { paddingBottom: thread.free ? '10px' : '14px' } }, segmented(
-      [{ v: false, n: 'Consultor do aquário' }, { v: true, n: 'Modo livre' }],
-      !!thread.free,
-      (v) => {
+    if (!controlsExpanded) {
+      const summary = thread.free ? (attachOn() ? 'Modo livre · com parâmetros do aquário' : 'Modo livre') : 'Consultor do aquário';
+      controlsCard.appendChild(h('div', { class: 'card-row press', onclick: () => { controlsExpanded = true; drawControls(); } },
+        h('div', { class: 'badge-ic' }, icon('sliders', 'ic ic-sm')),
+        h('div', { class: 'row-main' },
+          h('div', { class: 'row-title', text: 'Modo da conversa' }),
+          h('div', { class: 'row-sub', text: summary })),
+        h('span', { class: 'chev' }, icon('chev', 'ic ic-sm'))));
+      return;
+    }
+    controlsCard.appendChild(h('div', { class: 'card-row press', onclick: () => { controlsExpanded = false; drawControls(); } },
+      h('div', { class: 'row-main' }, h('div', { class: 'row-title', text: 'Modo da conversa' })),
+      h('span', { class: 'chev', style: { transform: 'rotate(180deg)' } }, icon('chev', 'ic ic-sm'))));
+    const body = h('div');
+    drawModeControls(body, {
+      free: thread.free,
+      attach: attachOn(),
+      onFree: (v) => {
         thread.free = v;
         thread.updatedAt = nowISO();
         save();
         toast(v ? 'Modo livre ativado — a IA pode opinar além dos dados deste aquário' : 'Voltou a considerar os dados registrados deste aquário', v ? '' : 'ok');
         drawControls();
+      },
+      onAttach: (v) => {
+        thread.attachParams = v;
+        thread.updatedAt = nowISO();
+        cfg.attachParamsDefault = v; // lembra a escolha para as próximas conversas
+        save();
       }
-    )));
-    if (thread.free) {
-      controlsCard.appendChild(h('div', { class: 'card-row' },
-        h('div', { class: 'row-main' },
-          h('div', { class: 'row-title', text: 'Incluir parâmetros deste aquário' }),
-          h('div', { class: 'row-sub', text: 'A IA usa como referência, mas continua livre para opinar além deles' })),
-        switchBtn(attachOn(), (v) => {
-          thread.attachParams = v;
-          thread.updatedAt = nowISO();
-          cfg.attachParamsDefault = v; // lembra a escolha para as próximas conversas
-          save();
-        })));
-    }
+    });
+    controlsCard.appendChild(body);
   };
   drawControls();
 

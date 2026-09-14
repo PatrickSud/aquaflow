@@ -125,6 +125,17 @@ export const PLANT_STATES = [
   { v: 'ruim', n: 'Deteriorando', s: 'bad' }
 ];
 
+/** Densidade geral de plantio do aquário — alimenta o bônus de carga biológica em
+ *  engine.js (plantas absorvem parte da amônia/nitrato, então toleram um pouco mais
+ *  de fauna). É uma escolha do usuário, não uma conta automática a partir da lista
+ *  de plantas — não dá pra medir cobertura real só pela quantidade cadastrada. */
+export const PLANT_DENSITY = [
+  { v: 'none', n: 'Sem plantas ou só decorativas' },
+  { v: 'baixa', n: 'Baixa (poucas plantas ou só flutuantes)' },
+  { v: 'moderada', n: 'Moderada (plantio parcial do fundo)' },
+  { v: 'densa', n: 'Densa (maior parte do fundo coberta)' }
+];
+
 /* ---------------- tarefas padrão ----------------
    action : liga a tarefa a um registro do app ('test' | 'dose' | 'tpa' | 'feed').
             Tocando na tarefa, abre o registro certo; e ela se marca sozinha
@@ -204,6 +215,7 @@ export function newAquarium(over = {}) {
 
     equip: {
       filtro: 'Filtro Hang-On Leecom HI-430 — 350 L/h, fluxo regulável, esponja pré-filtro na sucção',
+      vazao: null, // vazão real em L/h — em branco até o usuário informar; sem ela, o cálculo de carga fica neutro
       midias: 'Placa mecânica de entrada + anéis Boyu Megapore CR-150 (sobra em bolsa de malha no fundo)',
       aquecedor: 'Termostato Roxin 100 W, próximo ao fluxo do filtro',
       luz: 'Calha LED Newpet Full Spectrum RGB (65–87 cm), acima da tampa de vidro',
@@ -211,6 +223,8 @@ export function newAquarium(over = {}) {
       substrato: '≈10 kg de cascalho liso nº 2'
     },
     light: { on: '14:00', off: '20:00', hours: 6, intensity: 'média', notes: '' },
+
+    plantDensity: 'none',
 
     // TPA programada: o calendário lembra, os parâmetros decidem
     tpaPlan: { on: true, every: 10, pct: 20 },

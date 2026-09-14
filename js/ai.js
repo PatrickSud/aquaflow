@@ -548,6 +548,84 @@ export async function identifySpeciesAI(name, cfg) {
   return parseSpeciesJSON(raw);
 }
 
+/* ================= ordem do plano de povoamento (Fauna → Plano de povoamento) ================= */
+
+const STOCKING_JSON_SYS = 'Você é um consultor de aquarismo especializado em ordem de introdução de peixes em aquários comunitários. Responda SEMPRE apenas com um objeto JSON válido, sem ```, sem comentários e sem nenhum texto fora do JSON.';
+
+function stockingPrompt(aq, plan) {
+  const lines = plan.map((p) => {
+    const sp = specOf(aq, p.spec);
+    return `- id=${p.id} | ${p.qty}× ${sp.n}${sp.sci ? ` (${sp.sci})` : ''} | zona: ${sp.zona} | cardume mínimo: ${sp.grupo} | risco p/ camarões: ${sp.camarao} | convivência c/ Betta: ${sp.betta} | carga biológica por indivíduo: ${sp.bio}${p.done ? ' [já introduzido]' : ''}`;
+  }).join('\n');
+
+  const live = (aq.livestock || []).filter((x) => x.status !== 'obito' && x.status !== 'removido');
+  const liveTxt = live.length ? live.map((x) => `${x.qty}× ${specOf(aq, x.spec).n}`).join(', ') : 'nenhuma (aquário ainda sem fauna)';
+  const bl = bioload(aq);
+
+  return `Analise esta lista de LOTES PLANEJADOS para entrar, em sequência, neste aquário comunitário de água doce, e sugira a MELHOR ORDEM de introdução.
+
+Considere, nesta prioridade:
+1. Betta macho (se houver) sempre por último.
+2. Espécies que dependem de aquário maduro/biofilme (ex.: Neritina, Otocinclus) entram depois das mais resistentes.
+3. Lotes já marcados como "[já introduzido]" devem permanecer nas primeiras posições, na ordem em que estão.
+4. Espécies territorialistas ou de fundo geralmente entram antes de espécies de meia-água/superfície mais ativas, para já terem território estabelecido.
+5. A carga biológica acumulada ao longo da sequência — capacidade estimada deste aquário é ${bl.capacity} unidades, já em uso ${bl.used}.
+
+FAUNA JÁ NO AQUÁRIO (fora do plano): ${liveTxt}.
+
+LOTES PLANEJADOS (id, quantidade, espécie e características técnicas):
+${lines}
+
+Responda apenas um objeto JSON:
+{
+  "order": ["id do primeiro lote a entrar", "id do segundo", ...],
+  "justification": "explicação objetiva em português (2-4 frases) do motivo desta ordem"
+}
+
+"order" deve conter exatamente os mesmos ids listados acima, cada um uma única vez, apenas reordenados — nunca invente ids novos nem omita algum.`;
+}
+
+function parseStockingJSON(raw, planIds) {
+  let json;
+  try {
+    const m = String(raw).match(/\{[\s\S]*\}/);
+    json = JSON.parse(m ? m[0] : raw);
+  } catch (e) {
+    throw invalidSpeciesJSON(raw, 'A IA não respondeu em um formato que eu conseguisse entender (não veio um JSON válido).');
+  }
+  if (!json || typeof json !== 'object') throw invalidSpeciesJSON(raw, 'A IA não respondeu em um formato que eu conseguisse entender.');
+
+  const order = Array.isArray(json.order) ? json.order.map(String) : null;
+  const justification = String(json.justification || '').trim();
+  if (!order) throw invalidSpeciesJSON(raw, 'A resposta da IA não veio com a lista "order".');
+  if (!justification) throw invalidSpeciesJSON(raw, 'A resposta da IA veio sem a justificativa.');
+
+  const wantSet = new Set(planIds);
+  const gotSet = new Set(order);
+  const sameSize = order.length === planIds.length;
+  const sameIds = sameSize && planIds.every((id) => gotSet.has(id)) && order.every((id) => wantSet.has(id));
+  if (!sameSize || !sameIds) throw invalidSpeciesJSON(raw, 'A IA devolveu uma lista de lotes diferente da que foi enviada — talvez tenha inventado ou esquecido algum id.');
+
+  return { order, justification };
+}
+
+/** Pede à IA uma sugestão de ordem para os lotes de aq.stocking.plan, com justificativa.
+ *  Não altera nada — só devolve { order, justification } para o chamador decidir se aplica.
+ *  Lança erro com .raw (texto bruto da IA) quando a resposta não é utilizável. */
+export async function planStockingOrderAI(aq, cfg) {
+  if (!aiReady(cfg)) throw new Error('Conecte uma IA em "Configurar IA" para usar esta função.');
+  const plan = aq.stocking?.plan || [];
+  if (plan.length < 2) throw new Error('Adicione pelo menos 2 lotes ao plano para pedir uma ordem à IA.');
+  const q = stockingPrompt(aq, plan);
+  let raw;
+  if (cfg.provider === 'gemini') raw = await callGemini(STOCKING_JSON_SYS, '', q, cfg, []);
+  else if (cfg.provider === 'openai') raw = await callOpenAI(STOCKING_JSON_SYS, '', q, cfg, []);
+  else if (cfg.provider === 'anthropic') raw = await callClaude(STOCKING_JSON_SYS, '', q, cfg, []);
+  else if (cfg.provider === 'proxy') raw = await callProxy(STOCKING_JSON_SYS, '', q, cfg, []);
+  else throw new Error('Provedor de IA não configurado.');
+  return parseStockingJSON(raw, plan.map((p) => p.id));
+}
+
 export const SUGGESTIONS = [
   'A água está segura?',
   'Posso colocar os peixes?',

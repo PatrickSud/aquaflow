@@ -149,6 +149,9 @@ export function aquariumForm(ctx, editId) {
       d.equip = d.equip || {};
       E.forEach(([k, lb, ph]) => bodyEl.appendChild(field(lb, textarea({ value: d.equip[k] || '', placeholder: ph, style: { minHeight: '58px' }, oninput: (e) => { d.equip[k] = e.target.value; } }), null, true)));
 
+      bodyEl.appendChild(field('Vazão real do filtro (L/h)', input({ type: 'number', min: '0', step: '10', value: d.equip.vazao != null ? String(d.equip.vazao) : '', placeholder: 'ex.: 350', oninput: (e) => { d.equip.vazao = num(e.target.value); } }),
+        'Some filtros com a resistência da mídia real, não o número do rótulo. Usada para ajustar a capacidade de carga biológica na tela de Fauna — sem preencher, o cálculo fica neutro, como hoje.', true));
+
       bodyEl.appendChild(h('div', { class: 'sec-title', text: 'Iluminação' }));
       d.light = d.light || {};
       bodyEl.appendChild(h('div', { class: 'grid2' },

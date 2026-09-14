@@ -333,11 +333,32 @@ export function allSpecies(aq) {
 }
 
 /* ---------------- carga biológica ---------------- */
+const PLANT_BONUS = { none: 0, baixa: 0.05, moderada: 0.12, densa: 0.2 };
+const FILTER_REF_TURNOVER = 5; // giro de referência: ~5x o volume útil por hora
+
 /** Capacidade estimada em "unidades de carga" para o volume útil.
- *  Referência conservadora para plantado comunitário: ~1 unidade / 10 L úteis. */
+ *  Base conservadora: ~1 unidade / 10 L úteis — igual a antes se nada mais for informado.
+ *  Dois ajustes opcionais, cada um baseado em dado que o próprio usuário registra:
+ *  - filtragem: giro real (vazão do filtro ÷ volume útil) comparado a uma referência de 5x/h.
+ *    Sem a vazão informada, o fator fica neutro (1×) — não inventa nem penaliza.
+ *  - plantio: bônus modesto pela densidade de plantio escolhida pelo usuário (plantas
+ *    absorvem parte da amônia/nitrato, mas o app não tem como medir isso com precisão).
+ *  Margem de segurança: os dois ajustes juntos nunca aumentam a capacidade em mais de 50% —
+ *  o app é rápido para avisar quando a filtragem está fraca, mas conservador para dizer que
+ *  dá para povoar mais só porque o equipamento e as plantas estão bons. */
 export function bioload(aq) {
   const vol = num(aq.volUtil) || 0;
-  const capacity = vol / 10;
+  const baseCapacity = vol / 10;
+
+  const vazao = num(aq.equip?.vazao);
+  const turnover = vazao !== null && vol > 0 ? vazao / vol : null;
+  const filterFactor = turnover === null ? 1 : Math.min(1.4, Math.max(0.6, turnover / FILTER_REF_TURNOVER));
+
+  const plantFactor = 1 + (PLANT_BONUS[aq.plantDensity] || 0);
+
+  const factor = Math.min(1.5, filterFactor * plantFactor);
+  const capacity = baseCapacity * factor;
+
   let used = 0;
   const items = [];
   for (const it of aq.livestock || []) {
@@ -348,7 +369,15 @@ export function bioload(aq) {
     items.push({ it, sp, b });
   }
   const pct = capacity > 0 ? Math.round((used / capacity) * 100) : 0;
-  return { used: Math.round(used * 100) / 100, capacity: Math.round(capacity * 10) / 10, pct, items, vol };
+  return {
+    used: Math.round(used * 100) / 100,
+    capacity: Math.round(capacity * 10) / 10,
+    baseCapacity: Math.round(baseCapacity * 10) / 10,
+    turnover: turnover === null ? null : Math.round(turnover * 10) / 10,
+    filterFactor: Math.round(filterFactor * 100) / 100,
+    plantFactor: Math.round(plantFactor * 100) / 100,
+    pct, items, vol
+  };
 }
 
 export function bioStatus(pct) { return pct < 70 ? 'ok' : pct <= 100 ? 'warn' : 'bad'; }
@@ -810,7 +839,13 @@ export function digest(aq) {
   live.forEach((x) => L.push(`- ${x.qty}× ${x.name || specOf(aq, x.spec)?.n || '?'} · saúde: ${x.health || 'não informada'} · entrada: ${x.entryDate || '?'}${x.notes ? ' · ' + x.notes : ''}`));
   const gone = (aq.livestock || []).filter((x) => x.status === 'obito');
   if (gone.length) L.push(`ÓBITOS registrados: ${gone.map((x) => `${x.qty}× ${x.name || specOf(aq, x.spec)?.n} (${fmtDate(x.diedAt, false)})`).join('; ')}`);
-  L.push(`CARGA BIOLÓGICA estimada: ${bl.used} de ${bl.capacity} unidades (${bl.pct}% da capacidade para ${bl.vol} L úteis).`);
+  {
+    const bits = [];
+    if (bl.turnover !== null) bits.push(`filtragem ${bl.turnover}× o volume/hora (fator ${bl.filterFactor}×)`);
+    if (bl.plantFactor !== 1) bits.push(`plantio "${aq.plantDensity}" (fator ${bl.plantFactor}×)`);
+    const ajuste = bits.length ? ` — capacidade base seria ${bl.baseCapacity}, ajustada por: ${bits.join(' e ')}` : '';
+    L.push(`CARGA BIOLÓGICA estimada: ${bl.used} de ${bl.capacity} unidades (${bl.pct}% da capacidade para ${bl.vol} L úteis)${ajuste}.`);
+  }
 
   if ((aq.stocking?.plan || []).length) {
     L.push(`PLANO DE POVOAMENTO (configurável, intervalo ${aq.stocking.intervalDays} dias): ${aq.stocking.plan.map((p, i) => `${i + 1}) ${p.qty}× ${specOf(aq, p.spec)?.n || p.spec}${p.done ? ' [já introduzido]' : ''}`).join(' → ')}`);

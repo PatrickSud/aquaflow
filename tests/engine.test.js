@@ -80,6 +80,35 @@ describe('bioload', () => {
     });
     assert.equal(bioload(aq).used, 4);
   });
+
+  test('sem a vazão do filtro informada, o fator fica neutro (comportamento de antes)', () => {
+    const bl = bioload(aquario());
+    assert.equal(bl.turnover, null);
+    assert.equal(bl.filterFactor, 1);
+    assert.equal(bl.capacity, bl.baseCapacity);
+  });
+  test('filtro fraco reduz a capacidade, com piso de 60% da base', () => {
+    // 200 L/h em 80 L úteis = giro de 2,5×/h (referência é 5×/h) → fator abaixo do piso, trava em 0,6
+    const bl = bioload(aquario({ equip: { vazao: 200 } }));
+    assert.equal(bl.filterFactor, 0.6);
+    assert.equal(bl.capacity, 4.8); // 8 × 0,6
+  });
+  test('filtro forte aumenta a capacidade, com teto de 140% da base', () => {
+    // 800 L/h em 80 L úteis = giro de 10×/h → dobro da referência, trava em 1,4
+    const bl = bioload(aquario({ equip: { vazao: 800 } }));
+    assert.equal(bl.filterFactor, 1.4);
+    assert.equal(bl.capacity, 11.2); // 8 × 1,4
+  });
+  test('plantio denso dá um bônus modesto de 20% sobre a base', () => {
+    const bl = bioload(aquario({ plantDensity: 'densa' }));
+    assert.equal(bl.plantFactor, 1.2);
+    assert.equal(bl.capacity, 9.6); // 8 × 1,2
+  });
+  test('margem de segurança: filtro forte + plantio denso juntos não passam de 150% da base', () => {
+    // 1,4 (filtro) × 1,2 (plantio) = 1,68 sem o teto — a margem de segurança trava em 1,5
+    const bl = bioload(aquario({ equip: { vazao: 800 }, plantDensity: 'densa' }));
+    assert.equal(bl.capacity, 12); // 8 × 1,5, não 8 × 1,68
+  });
 });
 
 /* ================= compatibilidade ================= */

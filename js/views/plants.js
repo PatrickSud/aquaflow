@@ -5,7 +5,7 @@ import {
   empty, kv, stepper, photoPicker, confirmSheet, todayLocal
 } from '../ui.js';
 import { save, uid, remove, putPhoto, photoURL } from '../store.js';
-import { PLANT_STATES } from '../model.js';
+import { PLANT_STATES, PLANT_DENSITY } from '../model.js';
 import { fmtDate, relDay, ageDays, num } from '../engine.js';
 import { condName, condStatus } from './dashboard.js';
 
@@ -26,6 +26,12 @@ export default function plants(ctx) {
   const bad = list.filter((p) => p.cond === 'ruim');
   const poda = list.filter((p) => p.cond === 'poda');
   const adapt = list.filter((p) => p.cond === 'adapt' || p.cond === 'melt');
+
+  el.appendChild(h('div', { class: 'card' }, h('div', { class: 'card-pad' },
+    h('div', { style: { fontWeight: '700', fontSize: '14.5px', marginBottom: '4px' }, text: 'Densidade de plantio' }),
+    h('div', { class: 'note', style: { marginBottom: '10px' }, text: 'Plantas absorvem parte da amônia e do nitrato — isto ajusta a capacidade de carga biológica estimada na tela de Fauna.' }),
+    segmented(PLANT_DENSITY.map((o) => ({ v: o.v, n: o.n })), aq.plantDensity || 'none', (v) => { aq.plantDensity = v; save(); }, 'wrap')
+  )));
 
   if (bad.length) el.appendChild(h('div', { class: 'alert warn' }, icon('alert', 'ic'), h('div', {},
     h('div', { class: 'alert-t', text: 'Plantas deteriorando' }),

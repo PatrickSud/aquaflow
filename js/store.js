@@ -63,7 +63,7 @@ export const state = {
   // repetir a mesma pergunta à IA se o usuário cadastrar a espécie de novo em outro aquário.
   speciesCache: {},
   settings: {
-    ai: { provider: 'gemini', model: 'gemini-3.5-flash', key: '', endpoint: '', proxyUrl: '', attachParamsDefault: false },
+    ai: { provider: 'gemini', model: 'gemini-3.5-flash', key: '', endpoint: '', proxyUrl: '', attachParamsDefault: false, freeDefault: false },
     installDismissed: false,
     lastSeen: null,
     fbConfig: null,
@@ -93,7 +93,7 @@ export async function load() {
     if (d && typeof d === 'object') {
       Object.assign(state, d);
       state.settings = Object.assign({ ai: {}, installDismissed: false, lastSeen: null, fbConfig: null, syncPhotos: false, autoSync: true, sync: {} }, d.settings || {});
-      state.settings.ai = Object.assign({ provider: 'gemini', model: 'gemini-3.5-flash', key: '', endpoint: '', proxyUrl: '', attachParamsDefault: false }, d.settings?.ai || {});
+      state.settings.ai = Object.assign({ provider: 'gemini', model: 'gemini-3.5-flash', key: '', endpoint: '', proxyUrl: '', attachParamsDefault: false, freeDefault: false }, d.settings?.ai || {});
     }
   } catch (e) { console.error('load', e); }
   return state;
@@ -119,7 +119,7 @@ export async function removeAquarium(id) {
   const i = state.aquariums.findIndex((a) => a.id === id);
   if (i < 0) return;
   const aq = state.aquariums[i];
-  const ids = [aq.photo, ...(aq.plants || []).map((p) => p.photo), ...(aq.notes || []).map((n) => n.photo)].filter(Boolean);
+  const ids = [aq.photo, ...(aq.plants || []).map((p) => p.photo), ...(aq.notes || []).map((n) => n.photo), ...(aq.livestock || []).map((x) => x.photo)].filter(Boolean);
   for (const p of ids) { forgetPhotoURL(p); await delPhoto(p); }
   state.aquariums.splice(i, 1);
   if (state.activeId === id) state.activeId = state.aquariums[0]?.id || null;
@@ -180,6 +180,7 @@ export async function exportJSON() {
     if (a.photo) ids.add(a.photo);
     (a.plants || []).forEach((p) => p.photo && ids.add(p.photo));
     (a.notes || []).forEach((n) => n.photo && ids.add(n.photo));
+    (a.livestock || []).forEach((x) => x.photo && ids.add(x.photo));
   });
   for (const id of ids) {
     const b = await getPhoto(id);

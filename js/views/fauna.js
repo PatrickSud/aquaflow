@@ -2,13 +2,13 @@
 
 import {
   h, icon, cardHead, row, pill, sheet, toast, field, input, textarea, select, segmented,
-  empty, kv, stepper, colorPicker, confirmSheet, menuSheet, todayLocal
+  empty, kv, stepper, colorPicker, confirmSheet, menuSheet, todayLocal, photoPicker
 } from '../ui.js';
-import { save, uid, remove, touch, state } from '../store.js';
+import { save, uid, remove, touch, state, photoURL, putPhoto, delPhoto, forgetPhotoURL } from '../store.js';
 import {
   bioload, bioStatus, compatibility, riskLabel, canAddFish, fmtNum, fmtDate, relDay, num, ageDays, specOf, allSpecies
 } from '../engine.js';
-import { aiReady, identifySpeciesAI } from '../ai.js';
+import { aiReady, identifySpeciesAI, planStockingOrderAI } from '../ai.js';
 import { SPECIES_ZONA, SPECIES_CAMARAO, SPECIES_PLANTA, SPECIES_BETTA } from '../model.js';
 
 const HEALTH = [{ v: 'ok', n: 'Saudável' }, { v: 'warn', n: 'Alerta' }, { v: 'bad', n: 'Doente' }];
@@ -17,12 +17,23 @@ const normSpeciesName = (s) => String(s || '').trim().toLowerCase().normalize('N
 
 export default function fauna(ctx) {
   const aq = ctx.aq;
+  const cfg = state.settings.ai;
   const el = h('div');
   const bl = bioload(aq);
   const live = (aq.livestock || []).filter((x) => x.status !== 'obito' && x.status !== 'removido');
   const gone = (aq.livestock || []).filter((x) => x.status === 'obito' || x.status === 'removido');
+  const addAction = () => (aiReady(cfg) ? openAISpeciesAdd(ctx) : openManualSpeciesAdd(ctx));
+  const addLabel = aiReady(cfg) ? 'Adicionar peixe com IA' : 'Adicionar peixe';
+  const addIcon = aiReady(cfg) ? 'bulb' : 'plus';
 
   /* carga */
+  const bioBits = [];
+  if (bl.turnover !== null) bioBits.push(`filtro ${fmtNum(bl.turnover, 1)}×/h`);
+  if (bl.plantFactor !== 1) bioBits.push(`plantio ${aq.plantDensity}`);
+  const bioHints = [];
+  if (bl.turnover === null) bioHints.push('a vazão do filtro em "Editar aquário"');
+  if ((aq.plants || []).length && (!aq.plantDensity || aq.plantDensity === 'none')) bioHints.push('a densidade de plantio em "Plantas"');
+
   el.appendChild(h('div', { class: 'card' }, h('div', { class: 'card-pad' },
     h('div', { style: { display: 'flex', alignItems: 'center', gap: '10px' } },
       h('div', { style: { flex: '1' } },
@@ -30,7 +41,9 @@ export default function fauna(ctx) {
         h('div', { style: { fontSize: '13px', color: 'var(--tx-3)' }, text: `${fmtNum(aq.volUtil, 0)} L úteis` })),
       pill(bioStatus(bl.pct), bl.pct + '%')),
     h('div', { style: { height: '7px', borderRadius: '4px', background: 'var(--line)', overflow: 'hidden', marginTop: '11px' } },
-      h('div', { style: { height: '100%', width: Math.min(100, bl.pct) + '%', background: bl.pct > 100 ? 'var(--bad)' : bl.pct > 80 ? 'var(--warn)' : 'var(--ok)' } }))
+      h('div', { style: { height: '100%', width: Math.min(100, bl.pct) + '%', background: bl.pct > 100 ? 'var(--bad)' : bl.pct > 80 ? 'var(--warn)' : 'var(--ok)' } })),
+    bioBits.length ? h('div', { class: 'note', style: { marginTop: '8px' }, text: `Capacidade base ${fmtNum(bl.baseCapacity, 1)} un. → ajustada para ${fmtNum(bl.capacity, 1)} un. (${bioBits.join(' · ')}).` }) : null,
+    bioHints.length ? h('div', { class: 'note', style: { marginTop: '4px' }, text: `Informe ${bioHints.join(' e ')} para refinar este número.` }) : null
   )));
 
   /* portão */
@@ -43,15 +56,17 @@ export default function fauna(ctx) {
   /* lista */
   el.appendChild(h('div', { class: 'sec-title', text: 'Fauna atual' }));
   if (!live.length) el.appendChild(h('div', { class: 'card' }, empty('fish', 'Nenhum animal registrado.',
-    h('button', { class: 'btn', onclick: () => ctx.nav('fauna/nova') }, icon('plus', 'ic ic-sm'), 'Adicionar'))));
+    h('button', { class: 'btn', onclick: addAction }, icon(addIcon, 'ic ic-sm'), addLabel))));
   else {
     const c = h('div', { class: 'card' });
     live.forEach((x) => {
       const sp = specOf(aq, x.spec);
+      const thumb = h('div', { style: { width: '34px', height: '34px', borderRadius: '9px', background: (x.color || '#1a7ff0') + '22', color: x.color || '#1a7ff0', display: 'grid', placeItems: 'center', flex: '0 0 auto', overflow: 'hidden' } }, icon(sp.camarao === 'self' ? 'shrimp' : x.spec === 'neritina' ? 'snail' : 'fish', 'ic ic-sm'));
+      if (x.photo) photoURL(x.photo).then((u) => { if (u) { thumb.innerHTML = ''; thumb.appendChild(h('img', { src: u, alt: '', style: { width: '100%', height: '100%', objectFit: 'cover' } })); } });
       c.appendChild(row(`${x.qty}× ${x.name || sp.n}`,
         `${sp.zona} · adulto ~${sp.adult} cm${x.entryDate ? ' · entrou ' + fmtDate(x.entryDate + 'T12:00:00', false) : ''}`,
         {
-          left: h('div', { style: { width: '34px', height: '34px', borderRadius: '9px', background: (x.color || '#1a7ff0') + '22', color: x.color || '#1a7ff0', display: 'grid', placeItems: 'center', flex: '0 0 auto' } }, icon(sp.camarao === 'self' ? 'shrimp' : x.spec === 'neritina' ? 'snail' : 'fish', 'ic ic-sm')),
+          left: thumb,
           right: pill(x.health || null, hName(x.health)),
           onClick: () => openLivestock(aq, x, ctx)
         }));
@@ -59,9 +74,7 @@ export default function fauna(ctx) {
     el.appendChild(c);
   }
 
-  el.appendChild(h('button', { class: 'btn', onclick: () => ctx.nav('fauna/nova') }, icon('plus', 'ic ic-sm'), 'Adicionar espécie'));
-  el.appendChild(h('div', { style: { height: '9px' } }));
-  el.appendChild(h('button', { class: 'btn sec', onclick: () => openAISpeciesAdd(ctx) }, icon('bulb', 'ic ic-sm'), 'Adicionar peixe com IA'));
+  el.appendChild(h('button', { class: 'btn', onclick: addAction }, icon(addIcon, 'ic ic-sm'), addLabel));
   el.appendChild(h('div', { style: { height: '9px' } }));
   el.appendChild(h('button', { class: 'btn sec', onclick: () => ctx.nav('povoamento') }, icon('cal', 'ic ic-sm'), 'Plano de povoamento'));
   el.appendChild(h('div', { style: { height: '9px' } }));
@@ -78,10 +91,7 @@ export default function fauna(ctx) {
 
   return {
     title: 'Fauna',
-    actions: [
-      { icon: 'bulb', label: 'Adicionar peixe com IA', on: () => openAISpeciesAdd(ctx) },
-      { icon: 'plus', label: 'Adicionar', on: () => ctx.nav('fauna/nova') }
-    ],
+    actions: [{ icon: addIcon, label: addLabel, on: addAction }],
     el
   };
 }
@@ -96,6 +106,14 @@ export function faunaForm(ctx, editId) {
 
   const el = h('div');
   const analysis = h('div');
+  let blob = null;
+  const photoSlot = h('div');
+  photoSlot.appendChild(photoPicker(null, (b) => { blob = b; }));
+  if (d.photo) photoURL(d.photo).then((u) => {
+    if (!u) return;
+    photoSlot.innerHTML = '';
+    photoSlot.appendChild(photoPicker(u, (b) => { blob = b; }));
+  });
 
   const drawAnalysis = () => {
     analysis.innerHTML = '';
@@ -121,13 +139,20 @@ export function faunaForm(ctx, editId) {
   el.appendChild(field('Status de saúde', segmented(HEALTH, d.health, (v) => { d.health = v; }, 'st')));
   el.appendChild(field('Data de entrada', input({ type: 'date', value: d.entryDate, oninput: (e) => { d.entryDate = e.target.value; } })));
   el.appendChild(field('Observações', textarea({ value: d.notes, placeholder: 'Ex.: comportamento, marcas, tanque de origem…', oninput: (e) => { d.notes = e.target.value; } }), null, true));
+  el.appendChild(field('Foto', photoSlot, 'Ajuda a identificar o exemplar e comparar a evolução.', true));
   el.appendChild(analysis);
   drawAnalysis();
 
   el.appendChild(h('button', {
     class: 'btn', onclick: () => {
       const c = compatibility(aq, d.spec, num(d.qty) || 1);
-      const doSave = () => {
+      const doSave = async () => {
+        if (blob) {
+          const pid = uid();
+          await putPhoto(pid, blob);
+          if (d.photo) { forgetPhotoURL(d.photo); await delPhoto(d.photo); }
+          d.photo = pid;
+        }
         aq.livestock = aq.livestock || [];
         d.updatedAt = new Date().toISOString();
         if (existing) Object.assign(existing, d);
@@ -167,6 +192,11 @@ function openLivestock(aq, x, ctx) {
   return sheet({
     title: `${x.qty}× ${x.name || sp.n}`,
     body: (b) => {
+      if (x.photo) {
+        const img = h('img', { alt: '', style: { width: '100%', height: '170px', objectFit: 'cover', borderRadius: 'var(--r-sm)', marginBottom: '12px', display: 'block' } });
+        photoURL(x.photo).then((u) => { if (u) img.src = u; });
+        b.appendChild(img);
+      }
       b.appendChild(kv('Espécie', sp.n + (sp.sci ? ` (${sp.sci})` : '')));
       b.appendChild(kv('Tamanho adulto', `~${sp.adult} cm`));
       b.appendChild(kv('Posição na coluna', sp.zona));
@@ -337,6 +367,7 @@ export function openAISpeciesAdd(ctx) {
 export function openManualSpeciesAdd(ctx) {
   const aq = ctx.aq;
   let qty = 1;
+  let existingId = null; // se setado, reaproveita a espécie já conhecida em vez de criar uma nova
   const sp = { n: '', sci: '', adult: 5, zona: 'meia-água', bio: 1, grupo: 1, temp: [22, 28], ph: [6.0, 8.0], camarao: 'medio', planta: 'medio', betta: 'atencao', obs: '' };
 
   return sheet({
@@ -346,30 +377,80 @@ export function openManualSpeciesAdd(ctx) {
       b.appendChild(h('div', { class: 'note', style: { marginBottom: '12px' } },
         'Preencha as características técnicas da espécie. Elas alimentam as análises de compatibilidade e carga biológica deste aquário, do mesmo jeito que a base fixa do app.'));
 
-      b.appendChild(field('Nome popular', input({ placeholder: 'Ex.: Corydora Sterbai', oninput: (e) => { sp.n = e.target.value; } })));
-      b.appendChild(field('Nome científico', input({ placeholder: 'Opcional', oninput: (e) => { sp.sci = e.target.value; } }), null, true));
-      b.appendChild(h('div', { class: 'grid2' },
-        field('Tamanho adulto (cm)', input({ type: 'number', step: '0.5', min: '0.5', value: '5', oninput: (e) => { sp.adult = num(e.target.value) || 5; } })),
-        field('Cardume mínimo', input({ type: 'number', min: '1', value: '1', oninput: (e) => { sp.grupo = Math.max(1, Math.round(num(e.target.value) || 1)); } }))
-      ));
-      b.appendChild(field('Zona do aquário', select(SPECIES_ZONA.map((o) => ({ v: o.v, n: o.n, sel: o.v === sp.zona })), { onchange: (e) => { sp.zona = e.target.value; } })));
-      b.appendChild(field('Carga biológica relativa', input({ type: 'number', step: '0.1', min: '0.1', max: '3', value: '1', oninput: (e) => { sp.bio = Math.min(3, Math.max(0.1, num(e.target.value) || 1)); } }), 'Referência: neon ≈ 0.5, coridora ≈ 1, peixe grande ≥ 2.'));
-      b.appendChild(h('div', { class: 'grid2' },
-        field('Temp. mínima (°C)', input({ type: 'number', step: '0.5', value: '22', oninput: (e) => { sp.temp = [num(e.target.value) ?? 22, sp.temp[1]]; } })),
-        field('Temp. máxima (°C)', input({ type: 'number', step: '0.5', value: '28', oninput: (e) => { sp.temp = [sp.temp[0], num(e.target.value) ?? 28]; } }))
-      ));
-      b.appendChild(h('div', { class: 'grid2' },
-        field('pH mínimo', input({ type: 'number', step: '0.1', value: '6', oninput: (e) => { sp.ph = [num(e.target.value) ?? 6, sp.ph[1]]; } })),
-        field('pH máximo', input({ type: 'number', step: '0.1', value: '8', oninput: (e) => { sp.ph = [sp.ph[0], num(e.target.value) ?? 8]; } }))
-      ));
-      b.appendChild(field('Risco para camarões', select(SPECIES_CAMARAO.map((o) => ({ v: o.v, n: o.n, sel: o.v === sp.camarao })), { onchange: (e) => { sp.camarao = e.target.value; } })));
-      b.appendChild(field('Risco para plantas', select(SPECIES_PLANTA.map((o) => ({ v: o.v, n: o.n, sel: o.v === sp.planta })), { onchange: (e) => { sp.planta = e.target.value; } })));
-      b.appendChild(field('Convivência com Betta macho', select(SPECIES_BETTA.map((o) => ({ v: o.v, n: o.n, sel: o.v === sp.betta })), { onchange: (e) => { sp.betta = e.target.value; } })));
-      b.appendChild(field('Observações', textarea({ placeholder: 'Cuidados, comportamento, alimentação…', oninput: (e) => { sp.obs = e.target.value; } }), null, true));
-      b.appendChild(field('Quantidade a adicionar agora', input({ type: 'number', min: '1', value: '1', oninput: (e) => { qty = num(e.target.value) || 1; } })));
+      b.appendChild(field('Já é uma espécie conhecida?', select(
+        [{ v: '', n: '— Nova espécie —', sel: true }, ...allSpecies(aq).map((s) => ({ v: s.id, n: s.n }))],
+        { onchange: (e) => { existingId = e.target.value || null; drawForm(); } }
+      ), 'Escolher uma já cadastrada pula direto para a quantidade — não duplica dados.'));
+
+      const formBox = h('div');
+      const qtyBox = h('div');
+      b.appendChild(formBox);
+      b.appendChild(qtyBox);
+
+      const drawForm = () => {
+        formBox.innerHTML = '';
+        qtyBox.innerHTML = '';
+
+        if (existingId) {
+          const known = specOf(aq, existingId);
+          qty = known.grupo > 1 ? known.grupo : 1;
+          formBox.appendChild(h('div', { class: 'card' }, h('div', { class: 'card-pad' },
+            h('div', { style: { fontWeight: '700', fontSize: '14.5px' }, text: known.n }),
+            h('div', { class: 'note', style: { marginTop: '4px' }, text: `${known.sci ? known.sci + ' · ' : ''}adulto ~${known.adult} cm · ${known.zona} · cardume mínimo ${known.grupo}` })
+          )));
+        } else {
+          formBox.appendChild(field('Nome popular', input({ value: sp.n, placeholder: 'Ex.: Corydora Sterbai', oninput: (e) => { sp.n = e.target.value; } })));
+          formBox.appendChild(field('Nome científico', input({ value: sp.sci, placeholder: 'Opcional', oninput: (e) => { sp.sci = e.target.value; } }), null, true));
+          formBox.appendChild(h('div', { class: 'grid2' },
+            field('Tamanho adulto (cm)', input({ type: 'number', step: '0.5', min: '0.5', value: String(sp.adult), oninput: (e) => { sp.adult = num(e.target.value) || 5; } })),
+            field('Cardume mínimo', input({ type: 'number', min: '1', value: String(sp.grupo), oninput: (e) => { sp.grupo = Math.max(1, Math.round(num(e.target.value) || 1)); } }))
+          ));
+          formBox.appendChild(field('Zona do aquário', select(SPECIES_ZONA.map((o) => ({ v: o.v, n: o.n, sel: o.v === sp.zona })), { onchange: (e) => { sp.zona = e.target.value; } })));
+          formBox.appendChild(field('Carga biológica relativa', input({ type: 'number', step: '0.1', min: '0.1', max: '3', value: String(sp.bio), oninput: (e) => { sp.bio = Math.min(3, Math.max(0.1, num(e.target.value) || 1)); } }), 'Referência: neon ≈ 0.5, coridora ≈ 1, peixe grande ≥ 2.'));
+          formBox.appendChild(h('div', { class: 'grid2' },
+            field('Temp. mínima (°C)', input({ type: 'number', step: '0.5', value: String(sp.temp[0]), oninput: (e) => { sp.temp = [num(e.target.value) ?? 22, sp.temp[1]]; } })),
+            field('Temp. máxima (°C)', input({ type: 'number', step: '0.5', value: String(sp.temp[1]), oninput: (e) => { sp.temp = [sp.temp[0], num(e.target.value) ?? 28]; } }))
+          ));
+          formBox.appendChild(h('div', { class: 'grid2' },
+            field('pH mínimo', input({ type: 'number', step: '0.1', value: String(sp.ph[0]), oninput: (e) => { sp.ph = [num(e.target.value) ?? 6, sp.ph[1]]; } })),
+            field('pH máximo', input({ type: 'number', step: '0.1', value: String(sp.ph[1]), oninput: (e) => { sp.ph = [sp.ph[0], num(e.target.value) ?? 8]; } }))
+          ));
+          formBox.appendChild(field('Risco para camarões', select(SPECIES_CAMARAO.map((o) => ({ v: o.v, n: o.n, sel: o.v === sp.camarao })), { onchange: (e) => { sp.camarao = e.target.value; } })));
+          formBox.appendChild(field('Risco para plantas', select(SPECIES_PLANTA.map((o) => ({ v: o.v, n: o.n, sel: o.v === sp.planta })), { onchange: (e) => { sp.planta = e.target.value; } })));
+          formBox.appendChild(field('Convivência com Betta macho', select(SPECIES_BETTA.map((o) => ({ v: o.v, n: o.n, sel: o.v === sp.betta })), { onchange: (e) => { sp.betta = e.target.value; } })));
+          formBox.appendChild(field('Observações', textarea({ value: sp.obs, placeholder: 'Cuidados, comportamento, alimentação…', oninput: (e) => { sp.obs = e.target.value; } }), null, true));
+        }
+
+        qtyBox.appendChild(field('Quantidade a adicionar agora', input({ type: 'number', min: '1', value: String(qty), oninput: (e) => { qty = num(e.target.value) || 1; } })));
+      };
+      drawForm();
 
       b.appendChild(h('button', {
         class: 'btn', style: { marginTop: '6px' }, onclick: () => {
+          if (existingId) {
+            const known = specOf(aq, existingId);
+            const comp = compatibility(aq, existingId, qty);
+            const doAdd = () => {
+              const now = new Date().toISOString();
+              aq.livestock = aq.livestock || [];
+              aq.livestock.unshift({ id: uid(), spec: existingId, name: known.n, qty, color: '#1a7ff0', health: 'ok', entryDate: todayLocal(), notes: '', status: 'ativo', createdAt: now, updatedAt: now });
+              save({ immediate: true });
+              toast(`${known.n} adicionado à fauna`, 'ok');
+              close();
+              ctx.refresh();
+            };
+            if (comp.level === 'bad') {
+              confirmSheet({
+                title: '🔴 Alto risco — adicionar mesmo assim?',
+                message: comp.notes.slice(0, 3).join(' ') + '\n\nSe o animal já está no aquário, registre para o app poder monitorar. Se ainda não, resolva os pontos acima primeiro.',
+                confirmText: 'Adicionar mesmo assim', danger: true, onConfirm: doAdd
+              });
+              return;
+            }
+            doAdd();
+            return;
+          }
+
           if (!sp.n.trim()) { toast('Informe o nome da espécie', 'bad'); return; }
           const id = 'custom_' + uid();
           const shadow = Object.assign({}, aq, { customSpecies: [...(aq.customSpecies || []), Object.assign({ id }, sp)] });
@@ -445,27 +526,43 @@ export function stockingView(ctx) {
       ));
     });
     el.appendChild(c);
+
+    if (aq.stocking.aiJustification) {
+      const stale = !aq.stocking.aiOrderIds || aq.stocking.aiOrderIds.length !== aq.stocking.plan.length
+        || !aq.stocking.aiOrderIds.every((id) => aq.stocking.plan.some((p) => p.id === id));
+      el.appendChild(h('div', { class: 'card', style: { marginTop: '10px' } }, h('div', { class: 'card-pad' },
+        h('div', { style: { display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '6px' } },
+          icon('bulb', 'ic ic-sm'),
+          h('div', { style: { fontWeight: '700', fontSize: '13.5px', flex: '1' }, text: 'Por que esta ordem' }),
+          h('span', { style: { fontSize: '11.5px', color: 'var(--tx-3)' }, text: relDay(aq.stocking.aiSuggestedAt) })),
+        h('div', { class: 'note', text: aq.stocking.aiJustification }),
+        stale ? h('div', { class: 'note', style: { marginTop: '6px', color: 'var(--warn)' }, text: '⚠ O plano mudou desde esta sugestão — peça uma nova avaliação para atualizar.' }) : null
+      )));
+    }
   }
 
-  el.appendChild(h('button', {
-    class: 'btn', onclick: () => {
-      let spec = 'cory', qty = 6;
-      sheet({
-        title: 'Adicionar lote ao plano',
-        body: (b) => {
-          b.appendChild(field('Espécie', select(allSpecies(aq).map((s) => ({ v: s.id, n: s.n, sel: s.id === spec })), { onchange: (e) => { spec = e.target.value; qi.value = String(specOf(aq, spec).grupo > 1 ? specOf(aq, spec).grupo : 1); qty = num(qi.value); } })));
-          var qi = input({ type: 'number', min: '1', value: String(qty), oninput: (e) => { qty = num(e.target.value) || 1; } });
-          b.appendChild(field('Quantidade', qi));
-        },
-        actions: (close) => h('button', {
-          class: 'btn', text: 'Adicionar', onclick: () => {
-            aq.stocking.plan.push({ id: uid(), spec, qty, done: false });
-            save({ immediate: true }); close(); ctx.refresh();
-          }
-        })
-      });
-    }
-  }, icon('plus', 'ic ic-sm'), 'Adicionar lote'));
+  el.appendChild(h('div', { class: 'btn-row' },
+    h('button', {
+      class: 'btn', onclick: () => {
+        let spec = 'cory', qty = 6;
+        sheet({
+          title: 'Adicionar lote ao plano',
+          body: (b) => {
+            b.appendChild(field('Espécie', select(allSpecies(aq).map((s) => ({ v: s.id, n: s.n, sel: s.id === spec })), { onchange: (e) => { spec = e.target.value; qi.value = String(specOf(aq, spec).grupo > 1 ? specOf(aq, spec).grupo : 1); qty = num(qi.value); } })));
+            var qi = input({ type: 'number', min: '1', value: String(qty), oninput: (e) => { qty = num(e.target.value) || 1; } });
+            b.appendChild(field('Quantidade', qi));
+          },
+          actions: (close) => h('button', {
+            class: 'btn', text: 'Adicionar', onclick: () => {
+              aq.stocking.plan.push({ id: uid(), spec, qty, done: false });
+              save({ immediate: true }); close(); ctx.refresh();
+            }
+          })
+        });
+      }
+    }, icon('plus', 'ic ic-sm'), 'Adicionar lote'),
+    h('button', { class: 'btn sec', onclick: () => openStockingAIPlan(ctx) }, icon('bulb', 'ic ic-sm'), 'Planejar ordem com IA')
+  ));
 
   el.appendChild(h('div', { class: 'card', style: { marginTop: '14px' } }, h('div', { class: 'card-pad' },
     h('div', { style: { fontWeight: '700', fontSize: '14.5px', marginBottom: '7px' }, text: 'Como o app trata o povoamento' }),
@@ -474,4 +571,101 @@ export function stockingView(ctx) {
       'O Betta é sempre o último. A Neritina depende de aquário maduro com biofilme disponível, não de uma data fixa.'))));
 
   return { title: 'Plano de povoamento', back: true, el };
+}
+
+/* ================= planejar ordem de povoamento com IA ================= */
+export function openStockingAIPlan(ctx) {
+  const aq = ctx.aq;
+  const cfg = state.settings.ai;
+  aq.stocking = aq.stocking || { plan: [], intervalDays: 8 };
+  const plan = aq.stocking.plan || [];
+
+  return sheet({
+    title: 'Planejar ordem com IA',
+    big: true,
+    body: (b, close) => {
+      if (!aiReady(cfg)) {
+        b.appendChild(h('div', { class: 'alert warn' }, icon('alert', 'ic'), h('div', { style: { flex: '1' } },
+          h('div', { class: 'alert-t', text: 'Nenhuma IA conectada' }),
+          h('div', { class: 'alert-d', text: 'Conecte uma IA para pedir uma sugestão de ordem de povoamento.' }))));
+        b.appendChild(h('button', {
+          class: 'btn', style: { marginTop: '12px' }, onclick: async () => {
+            const { openAIConfig } = await import('./consultor.js');
+            close();
+            openAIConfig(ctx);
+          }
+        }, icon('sliders', 'ic ic-sm'), 'Configurar IA'));
+        return;
+      }
+
+      if (plan.length < 2) {
+        b.appendChild(h('div', { class: 'note' }, 'Adicione pelo menos 2 lotes ao plano para a IA ter o que reordenar.'));
+        return;
+      }
+
+      b.appendChild(h('div', { class: 'note', style: { marginBottom: '12px' } },
+        'A IA analisa comportamento, sensibilidade e carga biológica de cada lote e sugere uma ordem de introdução, com a justificativa. Nada muda até você aprovar.'));
+
+      const resultBox = h('div');
+      b.appendChild(resultBox);
+
+      const askBtn = h('button', {
+        class: 'btn', onclick: async (ev) => {
+          resultBox.innerHTML = '';
+          const btn = ev.currentTarget;
+          const orig = btn.textContent;
+          btn.disabled = true; btn.textContent = 'Consultando a IA…';
+          try {
+            const { order, justification } = await planStockingOrderAI(aq, cfg);
+            drawResult(order, justification);
+          } catch (err) {
+            resultBox.appendChild(h('div', { class: 'alert bad' }, icon('alert', 'ic'), h('div', { style: { flex: '1' } },
+              h('div', { class: 'alert-t', text: 'Não foi possível sugerir uma ordem' }),
+              h('div', { class: 'alert-d', text: err.message }),
+              err.raw ? h('details', { style: { marginTop: '8px' } },
+                h('summary', { style: { fontSize: '12.5px', color: 'var(--tx-3)', cursor: 'pointer' }, text: 'Ver resposta da IA' }),
+                h('pre', { style: { whiteSpace: 'pre-wrap', fontSize: '11.5px', color: 'var(--tx-2)', background: 'var(--card)', padding: '10px', borderRadius: '8px', marginTop: '6px', overflowX: 'auto' }, text: err.raw })) : null)));
+          }
+          btn.disabled = false; btn.textContent = orig;
+        }
+      }, icon('bulb', 'ic ic-sm'), 'Pedir sugestão à IA');
+      b.appendChild(askBtn);
+
+      function drawResult(order, justification) {
+        resultBox.innerHTML = '';
+        const byId = Object.fromEntries(plan.map((p) => [p.id, p]));
+        const changed = order.some((id, i) => plan[i]?.id !== id);
+
+        resultBox.appendChild(h('div', { class: 'card' },
+          cardHead('cal', changed ? 'Nova ordem sugerida' : 'A IA manteve a ordem atual', null),
+          h('div', { class: 'card-body' },
+            ...order.map((id, i) => {
+              const p = byId[id];
+              const sp = specOf(aq, p.spec);
+              return h('div', { style: { display: 'flex', gap: '9px', alignItems: 'center', padding: '7px 0', borderTop: i ? '1px solid var(--line-soft)' : 'none' } },
+                h('div', { style: { width: '22px', height: '22px', borderRadius: '50%', background: 'var(--card-2)', color: 'var(--accent)', display: 'grid', placeItems: 'center', fontSize: '12px', fontWeight: '700', flex: '0 0 auto' } }, String(i + 1)),
+                h('span', { style: { fontSize: '14px' }, text: `${p.qty}× ${sp.n}` }));
+            }),
+            h('div', { class: 'note', style: { marginTop: '10px' }, text: justification })
+          )));
+
+        resultBox.appendChild(h('div', { class: 'btn-row', style: { marginTop: '10px' } },
+          h('button', { class: 'btn sec', text: 'Manter ordem atual', onclick: () => close() }),
+          h('button', {
+            class: 'btn', text: 'Aplicar esta ordem', onclick: () => {
+              aq.stocking.plan = order.map((id) => byId[id]);
+              aq.stocking.aiJustification = justification;
+              aq.stocking.aiOrderIds = order.slice();
+              aq.stocking.aiSuggestedAt = new Date().toISOString();
+              save({ immediate: true });
+              toast('Ordem atualizada', 'ok');
+              close();
+              ctx.refresh();
+            }
+          })
+        ));
+      }
+    },
+    actions: (close) => h('button', { class: 'btn sec', text: 'Fechar', onclick: () => close() })
+  });
 }
