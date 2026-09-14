@@ -204,7 +204,8 @@ export function consultorThread(ctx, id) {
       if (aiReady(cfg)) {
         const hist = thread.messages.slice(0, -1).slice(-8).map((m) => ({ role: m.role, text: m.text }));
         const attach = !!thread.free && attachOn();
-        text = await aiAnswer(aq, q, cfg, hist, { free: !!thread.free, attachParams: attach });
+        const r = await aiAnswer(aq, q, cfg, hist, { free: !!thread.free, attachParams: attach });
+        text = r.truncated ? `${r.text}\n\n*(resposta cortada pelo limite de tamanho da IA — pergunte "continue" para receber o restante, ou tente de novo)*` : r.text;
         src = thread.free ? (attach ? 'ia-livre-dados' : 'ia-livre') : 'ia';
       } else {
         await new Promise((r) => setTimeout(r, 260));

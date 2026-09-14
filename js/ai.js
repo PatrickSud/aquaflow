@@ -344,6 +344,8 @@ function withCtx(ctx, q) {
 /** Envia a pergunta ao modelo. Em modo padrão, inclui o contexto e as regras deste aquário.
  *  Em modo livre (opts.free), a IA responde sem as regras rígidas; se opts.attachParams também
  *  estiver ligado, os parâmetros atuais vão junto só como referência (não como limite).
+ *  Retorna { text, truncated } — truncated=true quando a resposta foi cortada pelo limite de
+ *  tamanho do provedor, para o chamador poder avisar em vez de entregar uma frase pela metade.
  *  history = [{role:'user'|'model', text}] */
 export async function aiAnswer(aq, question, cfg, history = [], opts = {}) {
   const free = !!opts.free;
@@ -356,13 +358,15 @@ export async function aiAnswer(aq, question, cfg, history = [], opts = {}) {
     ctx = `PARÂMETROS ATUAIS DESTE AQUÁRIO (apenas para você usar como referência nesta pergunta; você não precisa se limitar só a eles nem seguir as regras rígidas do modo consultor):\n\n${digest(aq)}`;
   }
 
+  const CHAT_MAX_TOKENS = 2400; // o prompt do Consultor pede resposta estruturada (motivo, próximos passos,
+  // nível de confiança, pergunta de fechamento) — 1400 cortava respostas no meio com frequência.
   let r;
-  if (cfg.provider === 'gemini') r = await callGemini(sys, ctx, question, cfg, history);
-  else if (cfg.provider === 'openai') r = await callOpenAI(sys, ctx, question, cfg, history);
-  else if (cfg.provider === 'anthropic') r = await callClaude(sys, ctx, question, cfg, history);
+  if (cfg.provider === 'gemini') r = await callGemini(sys, ctx, question, cfg, history, CHAT_MAX_TOKENS);
+  else if (cfg.provider === 'openai') r = await callOpenAI(sys, ctx, question, cfg, history, CHAT_MAX_TOKENS);
+  else if (cfg.provider === 'anthropic') r = await callClaude(sys, ctx, question, cfg, history, CHAT_MAX_TOKENS);
   else if (cfg.provider === 'proxy') r = await callProxy(sys, ctx, question, cfg, history);
   else throw new Error('Provedor de IA não configurado.');
-  return r.text;
+  return r;
 }
 
 async function callGemini(sys, ctx, q, cfg, history, maxTokens = 1400) {
