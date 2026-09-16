@@ -42,7 +42,7 @@ self.addEventListener('install', (e) => {
   e.waitUntil((async () => {
     const cache = await caches.open(SHELL);
     // addAll falha inteiro se 1 arquivo faltar; adiciona um a um p/ ser tolerante
-    await Promise.all(ASSETS.map((u) => cache.add(new Request(u, { cache: 'reload' })).catch(() => {})));
+    await Promise.all(ASSETS.map((u) => cache.add(new Request(u, { cache: 'reload' })).catch(() => { })));
     self.skipWaiting();
   })());
 });
@@ -85,7 +85,7 @@ self.addEventListener('fetch', (e) => {
     const c = await caches.open(SHELL);
     const hit = await c.match(req, { ignoreSearch: false });
     if (hit) {
-      fetch(req).then((r) => { if (r && r.ok) c.put(req, r.clone()); }).catch(() => {});
+      fetch(req).then((r) => { if (r && r.ok) c.put(req, r.clone()); }).catch(() => { });
       return hit;
     }
     try {
