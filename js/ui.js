@@ -67,7 +67,9 @@ const PATHS = {
   snail: 'M15 19H6a4 4 0 0 1 0-8 5 5 0 1 1 5 5V9M4 8 2 6',
   food: 'M6 3v8a3 3 0 0 0 6 0V3M9 11v10M17 3c-1.5 2-2 4-2 6s1 3 1 3v9',
   light: 'M9 18h6M10 22h4M12 2v3M4.9 6.3l2.1 2.1M19.1 6.3 17 8.4M6 13a6 6 0 1 1 12 0c0 2.5-1.5 3.5-2 5H8c-.5-1.5-2-2.5-2-5z',
-  timer: 'M12 22a8 8 0 1 0 0-16 8 8 0 0 0 0 16zM12 10v4l3 2M9 2h6'
+  timer: 'M12 22a8 8 0 1 0 0-16 8 8 0 0 0 0 16zM12 10v4l3 2M9 2h6',
+  image: 'M3 5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zM8.5 10a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3zM21 15l-5-5-5 5-3-3-5 5',
+  crop: 'M6 2v14a2 2 0 0 0 2 2h14M18 22V8a2 2 0 0 0-2-2H2'
 };
 export function icon(name, cls = 'ic') {
   const p = PATHS[name] || PATHS.info;
@@ -93,6 +95,21 @@ export function toast(msg, kind = '') {
   const t = h('div', { class: 'toast ' + kind, text: msg });
   r.appendChild(t);
   setTimeout(() => { t.style.transition = 'opacity .25s'; t.style.opacity = '0'; setTimeout(() => t.remove(), 260); }, 2400);
+}
+
+/* ---------------- lightbox de imagem ---------------- */
+/** Expande uma foto em tela cheia. Toque fora ou no X fecha. */
+export function openImageLightbox(url) {
+  const root = $('#modal-root');
+  const bd = h('div', { class: 'lightbox-bd' },
+    h('img', { src: url, alt: '', class: 'lightbox-img', onclick: (e) => e.stopPropagation() }),
+    h('button', { class: 'lightbox-close', 'aria-label': 'Fechar', onclick: () => close() }, icon('x', 'ic'))
+  );
+  const close = () => { bd.classList.remove('in'); setTimeout(() => bd.remove(), 180); };
+  root.appendChild(bd);
+  requestAnimationFrame(() => bd.classList.add('in'));
+  bd.addEventListener('click', close);
+  return { close };
 }
 
 /* ---------------- bottom sheet ---------------- */
@@ -250,26 +267,224 @@ export function switchBtn(on, onChange) {
   return b;
 }
 
-/** Seletor de foto com compressão. onPick(blob|null) */
-export function photoPicker(currentURL, onPick) {
-  const box = h('label', { class: 'photo-pick' });
-  const inp = h('input', { type: 'file', accept: 'image/*', style: { display: 'none' } });
-  const render = (url) => {
+/* ---------------- câmera embutida + editor de enquadramento ---------------- */
+/** Overlay em tela cheia usado pela câmera e pelo editor de corte — mesma linguagem
+ *  visual do lightbox, com uma barra de ações fixa embaixo. */
+function fullscreenOverlay() {
+  const root = $('#modal-root');
+  const ov = h('div', { class: 'photo-ov' });
+  root.appendChild(ov);
+  requestAnimationFrame(() => ov.classList.add('in'));
+  const close = () => { ov.classList.remove('in'); setTimeout(() => ov.remove(), 180); };
+  return { ov, close };
+}
+
+/** Abre a câmera do aparelho DENTRO do próprio app (não troca de aplicativo).
+ *  Devolve a foto tirada como Blob, ou null se cancelado / câmera indisponível —
+ *  nesse caso quem chamar deve cair de volta para o seletor de arquivo comum. */
+export async function capturePhoto() {
+  if (!navigator.mediaDevices?.getUserMedia) return null;
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
+  } catch {
+    try { stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false }); }
+    catch { toast('Não foi possível abrir a câmera. Verifique a permissão do navegador para este site.', 'bad'); return null; }
+  }
+
+  return new Promise((resolve) => {
+    const { ov, close } = fullscreenOverlay();
+    const video = h('video', { autoplay: true, playsinline: true, muted: true, class: 'photo-ov-video' });
+    let cur = stream;
+    video.srcObject = cur;
+    const stop = () => cur.getTracks().forEach((t) => t.stop());
+
+    const flip = async () => {
+      const facing = cur.getVideoTracks()[0]?.getSettings?.().facingMode === 'user' ? 'environment' : 'user';
+      try {
+        const ns = await navigator.mediaDevices.getUserMedia({ video: { facingMode: facing }, audio: false });
+        stop(); cur = ns; video.srcObject = ns;
+      } catch { /* sem outra câmera disponível: mantém a atual */ }
+    };
+
+    ov.appendChild(video);
+    ov.appendChild(h('div', { class: 'photo-ov-bar' },
+      h('button', { type: 'button', class: 'photo-ov-btn', 'aria-label': 'Cancelar', onclick: () => { stop(); close(); resolve(null); } }, icon('x', 'ic')),
+      h('button', {
+        type: 'button', class: 'photo-ov-shutter', 'aria-label': 'Capturar foto',
+        onclick: () => {
+          const cv = document.createElement('canvas');
+          cv.width = video.videoWidth || 1280; cv.height = video.videoHeight || 960;
+          cv.getContext('2d').drawImage(video, 0, 0, cv.width, cv.height);
+          cv.toBlob((b) => { stop(); close(); resolve(b); }, 'image/jpeg', 0.92);
+        }
+      }),
+      h('button', { type: 'button', class: 'photo-ov-btn', 'aria-label': 'Trocar câmera', onclick: flip }, icon('refresh', 'ic'))
+    ));
+  });
+}
+
+/** Editor de enquadramento: arraste e amplie a foto dentro de uma janela de
+ *  proporção fixa antes de usá-la — corta exatamente o que aparece na janela.
+ *  `source` é um Blob/File (foto recém tirada/escolhida) ou uma URL de uma foto
+ *  já salva (para reajustar o enquadramento depois). Devolve o recorte final como
+ *  Blob, ou null se cancelado. opts.ratio: largura/altura da janela (1 = quadrada). */
+export function editPhoto(source, { ratio = 1, title = 'Ajustar foto' } = {}) {
+  return new Promise((resolve) => {
+    const isBlob = typeof source !== 'string';
+    const url = isBlob ? URL.createObjectURL(source) : source;
+
+    const { ov, close } = fullscreenOverlay();
+    const frame = h('div', { class: 'crop-frame' });
+    frame.style.aspectRatio = String(ratio);
+    const im = h('img', { src: url, alt: '', class: 'crop-img', draggable: false });
+    frame.appendChild(im);
+    const stage = h('div', { class: 'crop-stage' }, frame);
+
+    let scale = 1, minScale = 1, x = 0, y = 0, natW = 0, natH = 0;
+
+    const apply = () => {
+      const fw = frame.clientWidth, fh = frame.clientHeight;
+      const iw = natW * scale, ih = natH * scale;
+      x = Math.min(0, Math.max(fw - iw, x));
+      y = Math.min(0, Math.max(fh - ih, y));
+      im.style.transform = `translate(${x}px,${y}px) scale(${scale})`;
+    };
+    const fit = () => {
+      const fw = frame.clientWidth, fh = frame.clientHeight;
+      if (!fw || !fh || !natW || !natH) return;
+      minScale = Math.max(fw / natW, fh / natH);
+      scale = minScale;
+      x = (fw - natW * scale) / 2;
+      y = (fh - natH * scale) / 2;
+      apply();
+    };
+    im.addEventListener('load', () => { natW = im.naturalWidth; natH = im.naturalHeight; fit(); });
+    window.addEventListener('resize', fit);
+
+    /* arrastar (mouse/touch) e ampliar (pinça/roda do mouse) */
+    let dragging = false, lastX = 0, lastY = 0, pinchDist = null, pinchScale = 1;
+    const pt = (e) => (e.touches ? [e.touches[0].clientX, e.touches[0].clientY] : [e.clientX, e.clientY]);
+    const onDown = (e) => {
+      if (e.touches?.length === 2) {
+        pinchDist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+        pinchScale = scale;
+        return;
+      }
+      dragging = true; [lastX, lastY] = pt(e);
+    };
+    const onMove = (e) => {
+      if (e.touches?.length === 2 && pinchDist) {
+        const d = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+        scale = Math.min(minScale * 4, Math.max(minScale, pinchScale * (d / pinchDist)));
+        apply(); e.preventDefault(); return;
+      }
+      if (!dragging) return;
+      const [cx, cy] = pt(e);
+      x += cx - lastX; y += cy - lastY;
+      [lastX, lastY] = [cx, cy];
+      apply(); e.preventDefault();
+    };
+    const onUp = () => { dragging = false; pinchDist = null; };
+
+    frame.addEventListener('mousedown', onDown);
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    frame.addEventListener('touchstart', onDown, { passive: false });
+    frame.addEventListener('touchmove', onMove, { passive: false });
+    frame.addEventListener('touchend', onUp);
+    frame.addEventListener('wheel', (e) => { e.preventDefault(); scale = Math.min(minScale * 4, Math.max(minScale, scale * (1 - e.deltaY * 0.001))); apply(); }, { passive: false });
+
+    const zoom = (mult) => { scale = Math.min(minScale * 4, Math.max(minScale, scale * mult)); apply(); };
+
+    const cleanup = () => {
+      window.removeEventListener('resize', fit);
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      if (isBlob) URL.revokeObjectURL(url);
+    };
+
+    ov.appendChild(h('div', { class: 'photo-ov-head' }, title));
+    ov.appendChild(stage);
+    ov.appendChild(h('div', { class: 'photo-ov-bar' },
+      h('button', { type: 'button', class: 'photo-ov-btn', 'aria-label': 'Cancelar', onclick: () => { cleanup(); close(); resolve(null); } }, icon('x', 'ic')),
+      h('button', { type: 'button', class: 'photo-ov-btn', 'aria-label': 'Diminuir zoom', onclick: () => zoom(0.85) }, '−'),
+      h('button', { type: 'button', class: 'photo-ov-btn', 'aria-label': 'Aumentar zoom', onclick: () => zoom(1.18) }, '+'),
+      h('button', {
+        type: 'button', class: 'photo-ov-btn accent', 'aria-label': 'Usar esta foto',
+        onclick: () => {
+          const fw = frame.clientWidth, fh = frame.clientHeight;
+          const sx = -x / scale, sy = -y / scale, sw = fw / scale, sh = fh / scale;
+          const out = document.createElement('canvas');
+          const OUT_MAX = 1000;
+          out.width = ratio >= 1 ? OUT_MAX : Math.round(OUT_MAX * ratio);
+          out.height = ratio >= 1 ? Math.round(OUT_MAX / ratio) : OUT_MAX;
+          out.getContext('2d').drawImage(im, sx, sy, sw, sh, 0, 0, out.width, out.height);
+          out.toBlob((b) => { cleanup(); close(); resolve(b); }, 'image/jpeg', 0.9);
+        }
+      }, icon('check', 'ic'))
+    ));
+  });
+}
+
+/** Seletor de foto: tirar com a câmera do próprio app, escolher da galeria, ou
+ *  reajustar o enquadramento de uma foto já escolhida — sempre passando pelo editor
+ *  de corte e pela compressão antes de devolver. onPick(blob|null).
+ *  opts.ratio define a proporção da janela de corte (1 = quadrada; ex.: 16/9 para
+ *  fotos "de cena" como aquário/planta/diário). */
+export function photoPicker(currentURL, onPick, opts = {}) {
+  const ratio = opts.ratio || 1;
+  let curURL = currentURL || null;
+  const box = h('div', { class: 'photo-pick', tabindex: '0', role: 'button', 'aria-label': 'Foto' });
+
+  const render = () => {
     box.innerHTML = '';
-    box.appendChild(inp);
-    if (url) box.appendChild(h('img', { src: url, alt: '' }));
+    if (curURL) box.appendChild(h('img', { src: curURL, alt: '' }));
     else box.appendChild(h('div', { style: { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px' } },
       icon('cam', 'ic'), h('span', { text: 'Toque para adicionar foto', style: { fontSize: '13px' } })));
   };
-  inp.addEventListener('change', async () => {
-    const f = inp.files?.[0];
-    if (!f) return;
+
+  const finish = async (blob) => {
+    if (!blob) return;
     const { compressImage } = await import('./store.js');
-    const b = await compressImage(f);
-    render(URL.createObjectURL(b));
-    onPick?.(b);
-  });
-  render(currentURL);
+    const c = await compressImage(blob);
+    curURL = URL.createObjectURL(c);
+    render();
+    onPick?.(c);
+  };
+
+  const pickFromGallery = () => {
+    const inp = h('input', { type: 'file', accept: 'image/*', style: { display: 'none' } });
+    document.body.appendChild(inp);
+    inp.addEventListener('change', async () => {
+      const f = inp.files?.[0];
+      inp.remove();
+      if (!f) return;
+      finish(await editPhoto(f, { ratio }));
+    });
+    inp.click();
+  };
+
+  const takePhoto = async () => {
+    const shot = await capturePhoto();
+    if (!shot) { if (navigator.mediaDevices?.getUserMedia) return; pickFromGallery(); return; }
+    finish(await editPhoto(shot, { ratio }));
+  };
+
+  const adjustCurrent = async () => { if (curURL) finish(await editPhoto(curURL, { ratio })); };
+
+  const openChooser = () => {
+    menuSheet('Foto', [
+      { icon: 'cam', label: 'Tirar foto', on: takePhoto },
+      { icon: 'image', label: 'Escolher da galeria', on: pickFromGallery },
+      curURL ? { icon: 'crop', label: 'Ajustar enquadramento', on: adjustCurrent } : null
+    ]);
+  };
+
+  box.addEventListener('click', openChooser);
+  box.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openChooser(); } });
+
+  render();
   return box;
 }
 

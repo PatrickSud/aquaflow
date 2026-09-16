@@ -117,12 +117,55 @@ export default function cycling(ctx) {
   el.appendChild(h('div', { style: { height: '6px' } }));
   el.appendChild(h('button', { class: 'btn', onclick: () => openTestSheet(aq, ctx.refresh) }, icon('plus', 'ic ic-sm'), 'Registrar medição'));
 
+  /* declarar aquário já ciclado antes de usar o app (dispensa o histórico de 3/5 dias,
+     nunca dispensa amônia/nitrito = 0 na medição de hoje — ver engine.js) */
+  if (!aq.cycling?.done && !aq.cycling?.declaredMature) {
+    el.appendChild(h('div', { style: { height: '9px' } }));
+    el.appendChild(h('button', {
+      class: 'btn ghost', onclick: () => confirmSheet({
+        title: 'Este aquário já era ciclado antes de usar o app?',
+        message: 'Use isto só se o ciclo já tinha acontecido antes de você começar a registrar aqui — por exemplo, um aquário antigo que você está apenas cadastrando agora. Isso dispensa o histórico de 3 medições em 0/0 ao longo de 5 dias. Não dispensa a regra principal: nenhum peixe entra se a amônia ou o nitrito estiverem acima de 0 na medição de hoje.',
+        confirmText: 'Sim, já era ciclado',
+        onConfirm: () => {
+          aq.cycling.declaredMature = true;
+          aq.cycling.declaredMatureAt = new Date().toISOString();
+          save({ immediate: true });
+          toast('Aquário marcado como já ciclado', 'ok');
+          ctx.refresh();
+        }
+      })
+    }, 'Meu aquário já era ciclado antes de eu usar o app'));
+  }
+  if (aq.cycling?.declaredMature && !aq.cycling?.done) {
+    el.appendChild(h('div', { class: 'alert info', style: { marginTop: '12px' } }, icon('info', 'ic'),
+      h('div', { style: { flex: '1' } },
+        h('div', { class: 'alert-t', text: 'Declarado como já ciclado' }),
+        h('div', { class: 'alert-d', text: `Registrado em ${fmtDate(aq.cycling.declaredMatureAt)}. Ainda assim, nenhum peixe entra sem uma medição de hoje com amônia e nitrito em 0.` }),
+        h('button', {
+          class: 'btn ghost', style: { marginTop: '8px' }, onclick: () => confirmSheet({
+            title: 'Desfazer esta declaração?',
+            message: 'O app volta a exigir 3 medições em 0/0 ao longo de 5 dias para considerar o ciclo confirmado.',
+            confirmText: 'Desfazer', danger: true,
+            onConfirm: () => {
+              aq.cycling.declaredMature = false;
+              aq.cycling.declaredMatureAt = null;
+              save({ immediate: true });
+              toast('Declaração desfeita', 'ok');
+              ctx.refresh();
+            }
+          })
+        }, 'Desfazer declaração')
+      )));
+  }
+
   if (!aq.cycling?.done) {
     el.appendChild(h('div', { style: { height: '9px' } }));
     el.appendChild(h('button', {
       class: 'btn sec', disabled: !c.done, onclick: () => confirmSheet({
         title: 'Marcar ciclo como concluído?',
-        message: `Evidência: ${c.zeros.count} medições em 0/0 ao longo de ${c.zeros.spanDays} dias. Após isso, a cadência de testes passa a semanal (ou a cada 3–4 dias com fauna nova).`,
+        message: (aq.cycling?.declaredMature && !(c.zeros.count >= 3 && c.zeros.spanDays >= 5)
+          ? 'Evidência: aquário declarado como já ciclado antes do uso do app, com amônia e nitrito em 0 na medição de hoje.'
+          : `Evidência: ${c.zeros.count} medições em 0/0 ao longo de ${c.zeros.spanDays} dias.`) + ' Após isso, a cadência de testes passa a semanal (ou a cada 3–4 dias com fauna nova).',
         confirmText: 'Concluir ciclo',
         onConfirm: () => { aq.cycling.done = true; aq.cycling.doneAt = new Date().toISOString(); aq.cycling.phase = 4; save({ immediate: true }); toast('Ciclo concluído', 'ok'); ctx.refresh(); }
       })

@@ -1,6 +1,6 @@
 /* views/dashboard.js — tela "Aquário": o painel que prioriza o que precisa de atenção. */
 
-import { h, icon, cardHead, row, pill, alertBox, empty, toast, sheet, switchBtn } from '../ui.js';
+import { h, icon, cardHead, row, pill, alertBox, empty, toast, sheet, switchBtn, openImageLightbox } from '../ui.js';
 import { photoURL, state, save } from '../store.js';
 import { PARAMS, P, CORE, SPEC } from '../model.js';
 import {
@@ -47,7 +47,13 @@ export default function dashboard(ctx) {
   const hero = h('div', { class: 'hero' });
   const img = h('div', { class: 'hero-img' });
   if (aq.photo) {
-    photoURL(aq.photo).then((u) => { if (u) { img.innerHTML = ''; img.appendChild(h('img', { src: u, alt: '' })); } });
+    photoURL(aq.photo).then((u) => {
+      if (!u) return;
+      img.innerHTML = '';
+      img.appendChild(h('img', { src: u, alt: '' }));
+      img.classList.add('press');
+      img.onclick = () => openImageLightbox(u);
+    });
   } else {
     img.appendChild(h('div', { class: 'ph' }, icon('tank', 'ic'), h('span', { text: 'Toque para adicionar foto' })));
     img.classList.add('press');
@@ -59,7 +65,7 @@ export default function dashboard(ctx) {
   const live = (aq.livestock || []).filter((x) => x.status !== 'obito' && x.status !== 'removido');
   const nFish = live.reduce((s, x) => s + (Number(x.qty) || 0), 0);
 
-  hero.appendChild(h('div', { class: 'hero-info' },
+  hero.appendChild(h('div', { class: 'hero-info press', onclick: () => ctx.nav('aquarios/editar/' + aq.id) },
     h('div', { class: 'hero-name' }, h('span', { text: aq.name }), h('span', { style: { width: '9px', height: '9px', borderRadius: '50%', background: aq.color } })),
     h('div', { class: 'hero-meta', text: `${fmtNum(aq.volUtil, 0)} L úteis · ${aq.type === 'doce' ? 'Água doce' : 'Água salgada'}` }),
     h('div', { class: 'hero-stats' },

@@ -275,6 +275,23 @@ function srvMs(v) {
   return Number.isFinite(t) ? t : 0;
 }
 
+/** Aplica ao aquário local os campos fixos vindos do Firestore, só se forem mais
+ *  novos que o que este aparelho já conhece. Usado tanto na descida (pull) quanto
+ *  ANTES da subida (push) — assim o push nunca sobrescreve uma edição feita por
+ *  outro aparelho que ainda não chegou aqui: primeiro incorpora o que é mais novo
+ *  na nuvem, só depois manda o estado local (agora já mesclado) de volta. */
+function mergeRemoteScalars(aq, meta, data, res) {
+  const remoteMs = srvMs(data.updatedAt);
+  if (remoteMs <= (meta.scalarCursor || 0)) return false;
+  for (const [k, v] of Object.entries(data)) {
+    if (LOCAL_ONLY.has(k) || k === 'updatedAt' || k === 'clientAt') continue;
+    aq[k] = v;
+  }
+  meta.scalarCursor = remoteMs;
+  if (res) res.conflicts++;
+  return true;
+}
+
 /** Separa os campos fixos do aquário (vão para o documento) das coleções. */
 function scalarsOf(aq) {
   const out = {};
@@ -362,18 +379,7 @@ async function pull(uidKey, aq, meta, res) {
 
   // campos fixos do aquário: só sobrescreve se o remoto for mais novo (hora do servidor)
   const snap = await getDoc(doc(db, base));
-  if (snap.exists()) {
-    const r = snap.data();
-    const remoteMs = srvMs(r.updatedAt);
-    if (remoteMs > (meta.scalarCursor || 0)) {
-      for (const [k, v] of Object.entries(r)) {
-        if (LOCAL_ONLY.has(k) || k === 'updatedAt' || k === 'clientAt') continue;
-        aq[k] = v;
-      }
-      meta.scalarCursor = remoteMs;
-      res.conflicts++;
-    }
-  }
+  if (snap.exists()) mergeRemoteScalars(aq, meta, snap.data(), res);
 
   for (const coll of SYNC_COLLS) {
     const cur = meta.cursor[coll] || 0;
@@ -409,9 +415,16 @@ async function pull(uidKey, aq, meta, res) {
 
 /* --- subida: manda o que mudou aqui --- */
 async function push(uidKey, aq, meta, res) {
-  const { doc, setDoc, writeBatch, serverTimestamp } = fb;
+  const { doc, getDoc, setDoc, writeBatch, serverTimestamp } = fb;
   const base = `users/${uidKey}/aquariums/${aq.id}`;
   const since = meta.push;
+
+  // Antes de mandar os campos fixos do aquário, confere se a nuvem tem uma versão
+  // mais nova (editada por outro aparelho que ainda não chegou aqui). Sem isto, esta
+  // subida sobrescreveria silenciosamente aquela edição — mesclando o remoto mais
+  // novo primeiro, o que sobe em seguida já inclui a edição do outro aparelho.
+  const remoteSnap = await getDoc(doc(db, base));
+  if (remoteSnap.exists()) mergeRemoteScalars(aq, meta, remoteSnap.data(), res);
 
   await setDoc(doc(db, base), Object.assign(scalarsOf(aq), { updatedAt: serverTimestamp() }), { merge: true });
 
@@ -433,11 +446,15 @@ async function push(uidKey, aq, meta, res) {
     }
   }
 
-  // exclusões viajam como marcação, senão o registro ressuscita no outro aparelho
+  // exclusões viajam como marcação, senão o registro ressuscita no outro aparelho.
+  // updatedAt precisa ser o do SERVIDOR (mesmo motivo do resto do arquivo): usar o
+  // relógio do próprio aparelho aqui reintroduziria o problema de relógio
+  // desencontrado bem no campo que decide se uma edição de outro aparelho é vista
+  // como "antes" ou "depois" da exclusão. clientAt guarda a hora local só de registro.
   for (const t of aq.tombstones || []) {
     if (since && t.at <= since) continue;
     if (!SYNC_COLLS.includes(t.coll)) continue;
-    batch.set(doc(db, `${base}/${t.coll}/${t.id}`), { deleted: true, updatedAt: t.at });
+    batch.set(doc(db, `${base}/${t.coll}/${t.id}`), { deleted: true, updatedAt: serverTimestamp(), clientAt: t.at });
     res.pushed++;
     if (++n >= 400) await flush();
   }

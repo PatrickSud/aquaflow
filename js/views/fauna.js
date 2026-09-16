@@ -2,18 +2,27 @@
 
 import {
   h, icon, cardHead, row, pill, sheet, toast, field, input, textarea, select, segmented,
-  empty, kv, stepper, colorPicker, confirmSheet, menuSheet, todayLocal, photoPicker
+  empty, kv, stepper, colorPicker, confirmSheet, menuSheet, todayLocal, photoPicker, openImageLightbox
 } from '../ui.js';
 import { save, uid, remove, touch, state, photoURL, putPhoto, delPhoto, forgetPhotoURL } from '../store.js';
 import {
-  bioload, bioStatus, compatibility, riskLabel, canAddFish, fmtNum, fmtDate, relDay, num, ageDays, specOf, allSpecies
+  bioload, bioStatus, compatibility, riskLabel, canAddFish, fmtNum, fmtDate, relDay, num, ageDays, specOf, allSpecies, stockingOrderIssues
 } from '../engine.js';
 import { aiReady, identifySpeciesAI, planStockingOrderAI } from '../ai.js';
-import { SPECIES_ZONA, SPECIES_CAMARAO, SPECIES_PLANTA, SPECIES_BETTA } from '../model.js';
+import { SPECIES, SPEC, SPECIES_ZONA, SPECIES_CAMARAO, SPECIES_PLANTA, SPECIES_BETTA } from '../model.js';
 
 const HEALTH = [{ v: 'ok', n: 'Saudável' }, { v: 'warn', n: 'Alerta' }, { v: 'bad', n: 'Doente' }];
 const hName = (v) => ({ ok: 'Saudável', warn: 'Alerta', bad: 'Doente' }[v] || '—');
 const normSpeciesName = (s) => String(s || '').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+/** Ícone e cor sugeridos para uma espécie — usa "kind"/"color" da base fixa quando existem
+ *  (não são fotos reais, só um jeito de diferenciar visualmente cada espécie nas listas);
+ *  para espécies customizadas (IA/manual), cai no que dá pra inferir do "camarao". */
+function specGlyph(sp) {
+  const kind = sp.kind || (sp.camarao === 'self' ? 'shrimp' : 'fish');
+  const iconName = kind === 'shrimp' ? 'shrimp' : kind === 'snail' ? 'snail' : 'fish';
+  return { iconName, color: sp.color || '#1a7ff0' };
+}
 
 export default function fauna(ctx) {
   const aq = ctx.aq;
@@ -22,9 +31,10 @@ export default function fauna(ctx) {
   const bl = bioload(aq);
   const live = (aq.livestock || []).filter((x) => x.status !== 'obito' && x.status !== 'removido');
   const gone = (aq.livestock || []).filter((x) => x.status === 'obito' || x.status === 'removido');
-  const addAction = () => (aiReady(cfg) ? openAISpeciesAdd(ctx) : openManualSpeciesAdd(ctx));
-  const addLabel = aiReady(cfg) ? 'Adicionar peixe com IA' : 'Adicionar peixe';
-  const addIcon = aiReady(cfg) ? 'bulb' : 'plus';
+  const addFauna = () => ctx.nav('fauna/nova');
+  const newSpeciesAction = () => (aiReady(cfg) ? openAISpeciesAdd(ctx) : openManualSpeciesAdd(ctx));
+  const newSpeciesLabel = aiReady(cfg) ? 'Cadastrar espécie com IA' : 'Cadastrar espécie manualmente';
+  const newSpeciesIcon = aiReady(cfg) ? 'bulb' : 'plus';
 
   /* carga */
   const bioBits = [];
@@ -55,14 +65,19 @@ export default function fauna(ctx) {
 
   /* lista */
   el.appendChild(h('div', { class: 'sec-title', text: 'Fauna atual' }));
-  if (!live.length) el.appendChild(h('div', { class: 'card' }, empty('fish', 'Nenhum animal registrado.',
-    h('button', { class: 'btn', onclick: addAction }, icon(addIcon, 'ic ic-sm'), addLabel))));
+  if (!live.length) el.appendChild(h('div', { class: 'card' }, empty('fish', 'Nenhum animal registrado.')));
   else {
     const c = h('div', { class: 'card' });
     live.forEach((x) => {
       const sp = specOf(aq, x.spec);
-      const thumb = h('div', { style: { width: '34px', height: '34px', borderRadius: '9px', background: (x.color || '#1a7ff0') + '22', color: x.color || '#1a7ff0', display: 'grid', placeItems: 'center', flex: '0 0 auto', overflow: 'hidden' } }, icon(sp.camarao === 'self' ? 'shrimp' : x.spec === 'neritina' ? 'snail' : 'fish', 'ic ic-sm'));
-      if (x.photo) photoURL(x.photo).then((u) => { if (u) { thumb.innerHTML = ''; thumb.appendChild(h('img', { src: u, alt: '', style: { width: '100%', height: '100%', objectFit: 'cover' } })); } });
+      const thumb = h('div', { style: { width: '34px', height: '34px', borderRadius: '9px', background: (x.color || '#1a7ff0') + '22', color: x.color || '#1a7ff0', display: 'grid', placeItems: 'center', flex: '0 0 auto', overflow: 'hidden' } }, icon(specGlyph(sp).iconName, 'ic ic-sm'));
+      if (x.photo) photoURL(x.photo).then((u) => {
+        if (!u) return;
+        thumb.innerHTML = '';
+        thumb.appendChild(h('img', { src: u, alt: '', style: { width: '100%', height: '100%', objectFit: 'cover' } }));
+        thumb.style.cursor = 'zoom-in';
+        thumb.onclick = (e) => { e.stopPropagation(); openImageLightbox(u); };
+      });
       c.appendChild(row(`${x.qty}× ${x.name || sp.n}`,
         `${sp.zona} · adulto ~${sp.adult} cm${x.entryDate ? ' · entrou ' + fmtDate(x.entryDate + 'T12:00:00', false) : ''}`,
         {
@@ -74,9 +89,11 @@ export default function fauna(ctx) {
     el.appendChild(c);
   }
 
-  el.appendChild(h('button', { class: 'btn', onclick: addAction }, icon(addIcon, 'ic ic-sm'), addLabel));
+  el.appendChild(h('button', { class: 'btn', onclick: addFauna }, icon('plus', 'ic ic-sm'), 'Adicionar fauna'));
   el.appendChild(h('div', { style: { height: '9px' } }));
-  el.appendChild(h('button', { class: 'btn sec', onclick: () => ctx.nav('fauna/especies') }, icon('book', 'ic ic-sm'), `Minhas espécies${(aq.customSpecies || []).length ? ` (${aq.customSpecies.length})` : ''}`));
+  el.appendChild(h('button', { class: 'btn sec', onclick: newSpeciesAction }, icon(newSpeciesIcon, 'ic ic-sm'), newSpeciesLabel));
+  el.appendChild(h('div', { style: { height: '9px' } }));
+  el.appendChild(h('button', { class: 'btn sec', onclick: () => ctx.nav('fauna/especies') }, icon('book', 'ic ic-sm'), 'Minhas espécies'));
   el.appendChild(h('div', { style: { height: '9px' } }));
   el.appendChild(h('button', { class: 'btn sec', onclick: () => ctx.nav('povoamento') }, icon('cal', 'ic ic-sm'), 'Plano de povoamento'));
   el.appendChild(h('div', { style: { height: '9px' } }));
@@ -93,7 +110,10 @@ export default function fauna(ctx) {
 
   return {
     title: 'Fauna',
-    actions: [{ icon: addIcon, label: addLabel, on: addAction }],
+    actions: [
+      { icon: newSpeciesIcon, label: newSpeciesLabel, on: newSpeciesAction },
+      { icon: 'plus', label: 'Adicionar fauna', on: addFauna }
+    ],
     el
   };
 }
@@ -110,11 +130,11 @@ export function faunaForm(ctx, editId) {
   const analysis = h('div');
   let blob = null;
   const photoSlot = h('div');
-  photoSlot.appendChild(photoPicker(null, (b) => { blob = b; }));
+  photoSlot.appendChild(photoPicker(null, (b) => { blob = b; }, { ratio: 16 / 9 }));
   if (d.photo) photoURL(d.photo).then((u) => {
     if (!u) return;
     photoSlot.innerHTML = '';
-    photoSlot.appendChild(photoPicker(u, (b) => { blob = b; }));
+    photoSlot.appendChild(photoPicker(u, (b) => { blob = b; }, { ratio: 16 / 9 }));
   });
 
   const drawAnalysis = () => {
@@ -195,8 +215,8 @@ function openLivestock(aq, x, ctx) {
     title: `${x.qty}× ${x.name || sp.n}`,
     body: (b) => {
       if (x.photo) {
-        const img = h('img', { alt: '', style: { width: '100%', height: '170px', objectFit: 'cover', borderRadius: 'var(--r-sm)', marginBottom: '12px', display: 'block' } });
-        photoURL(x.photo).then((u) => { if (u) img.src = u; });
+        const img = h('img', { alt: '', style: { width: '100%', height: '170px', objectFit: 'cover', borderRadius: 'var(--r-sm)', marginBottom: '12px', display: 'block', cursor: 'zoom-in' } });
+        photoURL(x.photo).then((u) => { if (u) { img.src = u; img.onclick = () => openImageLightbox(u); } });
         b.appendChild(img);
       }
       b.appendChild(kv('Espécie', sp.n + (sp.sci ? ` (${sp.sci})` : '')));
@@ -520,23 +540,36 @@ export function openManualSpeciesAdd(ctx) {
   });
 }
 
-/* ================= catálogo de espécies deste aquário ================= */
+/* ================= catálogo de espécies disponíveis (suas + base fixa do app) ================= */
 export function speciesCatalogView(ctx) {
   const aq = ctx.aq;
-  const list = aq.customSpecies || [];
+  const allCustom = aq.customSpecies || [];
+  // uma personalização de espécie da base fixa usa o MESMO id da base (ver specOf) —
+  // separa quem é só personalização (mostrar junto da base) de quem é espécie nova de fato.
+  const overridesById = Object.fromEntries(allCustom.filter((s) => SPEC[s.id] && s.id !== 'outro').map((s) => [s.id, s]));
+  const customNew = allCustom.filter((s) => !SPEC[s.id]);
+  const fixed = SPECIES.filter((s) => s.id !== 'outro');
   const el = h('div');
 
   el.appendChild(h('div', { class: 'note', style: { marginBottom: '12px' } },
-    'Espécies que você cadastrou manualmente ou identificou com a IA neste aquário. A base fixa do app (Neon, Corydora, Betta…) não aparece aqui porque é compartilhada por todos os aquários e não é editável.'));
+    'Todas as espécies disponíveis para cadastrar fauna neste aquário: as que você adicionou (por IA ou manualmente) e a base fixa do app. Toque em qualquer uma para editar — inclusive as da base fixa, que ganham uma personalização só deste aquário.'));
 
-  if (!list.length) {
-    el.appendChild(h('div', { class: 'card' }, empty('book', 'Nenhuma espécie cadastrada ainda. Use "Adicionar peixe com IA" ou o cadastro manual na tela de Fauna.')));
+  el.appendChild(h('div', { class: 'sec-title', text: `Cadastradas por você (${customNew.length})` }));
+  if (!customNew.length) {
+    el.appendChild(h('div', { class: 'card' }, empty('book', 'Nenhuma espécie cadastrada ainda. Use "Cadastrar espécie com IA" ou o cadastro manual na tela de Fauna.')));
   } else {
     const c = h('div', { class: 'card' });
-    list.forEach((s) => {
+    customNew.forEach((s) => {
       const usedBy = (aq.livestock || []).filter((x) => x.spec === s.id).reduce((sum, x) => sum + (num(x.qty) || 0), 0);
-      const thumb = h('div', { style: { width: '34px', height: '34px', borderRadius: '9px', background: 'var(--card-2)', color: 'var(--accent)', display: 'grid', placeItems: 'center', flex: '0 0 auto', overflow: 'hidden' } }, icon('fish', 'ic ic-sm'));
-      if (s.photo) photoURL(s.photo).then((u) => { if (u) { thumb.innerHTML = ''; thumb.appendChild(h('img', { src: u, alt: '', style: { width: '100%', height: '100%', objectFit: 'cover' } })); } });
+      const g = specGlyph(s);
+      const thumb = h('div', { style: { width: '34px', height: '34px', borderRadius: '9px', background: g.color + '22', color: g.color, display: 'grid', placeItems: 'center', flex: '0 0 auto', overflow: 'hidden' } }, icon(g.iconName, 'ic ic-sm'));
+      if (s.photo) photoURL(s.photo).then((u) => {
+        if (!u) return;
+        thumb.innerHTML = '';
+        thumb.appendChild(h('img', { src: u, alt: '', style: { width: '100%', height: '100%', objectFit: 'cover' } }));
+        thumb.style.cursor = 'zoom-in';
+        thumb.onclick = (e) => { e.stopPropagation(); openImageLightbox(u); };
+      });
       c.appendChild(row(s.n,
         `${s.sci ? s.sci + ' · ' : ''}adulto ~${s.adult} cm · ${usedBy ? `${usedBy} na fauna atual` : 'não usada na fauna atual'}`,
         { left: thumb, onClick: () => ctx.nav('fauna/especies/editar/' + s.id) }));
@@ -544,19 +577,52 @@ export function speciesCatalogView(ctx) {
     el.appendChild(c);
   }
 
+  el.appendChild(h('div', { class: 'sec-title', text: `Base fixa do app (${fixed.length})` }));
+  const c2 = h('div', { class: 'card' });
+  fixed.forEach((s) => {
+    const ov = overridesById[s.id];
+    const display = ov || s;
+    const usedBy = (aq.livestock || []).filter((x) => x.spec === s.id).reduce((sum, x) => sum + (num(x.qty) || 0), 0);
+    const g = specGlyph(display);
+    const thumb = h('div', { style: { width: '34px', height: '34px', borderRadius: '9px', background: g.color + '22', color: g.color, display: 'grid', placeItems: 'center', flex: '0 0 auto', overflow: 'hidden' } }, icon(g.iconName, 'ic ic-sm'));
+    if (display.photo) photoURL(display.photo).then((u) => {
+      if (!u) return;
+      thumb.innerHTML = '';
+      thumb.appendChild(h('img', { src: u, alt: '', style: { width: '100%', height: '100%', objectFit: 'cover' } }));
+      thumb.style.cursor = 'zoom-in';
+      thumb.onclick = (e) => { e.stopPropagation(); openImageLightbox(u); };
+    });
+    c2.appendChild(row(display.n,
+      `${display.sci ? display.sci + ' · ' : ''}adulto ~${display.adult} cm · ${usedBy ? `${usedBy} na fauna atual` : 'não usada na fauna atual'}`,
+      {
+        left: thumb,
+        right: ov ? h('div', { style: { display: 'flex', gap: '6px', alignItems: 'center' } }, pill('info', 'Personalizada'), icon('chev', 'ic ic-sm')) : null,
+        onClick: () => ctx.nav('fauna/especies/editar/' + s.id)
+      }));
+  });
+  el.appendChild(c2);
+
   return { title: 'Minhas espécies', back: true, el };
 }
 
 export function speciesForm(ctx, editId) {
   const aq = ctx.aq;
-  const existing = (aq.customSpecies || []).find((s) => s.id === editId);
-  if (!existing) {
+  const base = SPEC[editId] && editId !== 'outro' ? SPEC[editId] : null;
+  const override = (aq.customSpecies || []).find((s) => s.id === editId);
+  const source = override || base;
+  if (!source) {
     setTimeout(() => ctx.nav('fauna/especies'), 0);
     return { title: 'Espécie', back: true, el: h('div') };
   }
-  const d = Object.assign({}, existing, { temp: [...existing.temp], ph: [...existing.ph] });
+  const isBase = !!base;
+  const d = Object.assign({ photo: null }, source, { temp: [...source.temp], ph: [...source.ph] });
   let blob = null;
   const el = h('div');
+
+  if (isBase && !override) {
+    el.appendChild(h('div', { class: 'note', style: { marginBottom: '10px' } },
+      'Espécie da base fixa do app. Salvar aqui cria uma personalização só para este aquário — os demais aquários continuam usando os dados originais.'));
+  }
 
   const photoSlot = h('div');
   photoSlot.appendChild(photoPicker(null, (b) => { blob = b; }));
@@ -598,27 +664,34 @@ export function speciesForm(ctx, editId) {
         d.photo = pid;
       }
       d.updatedAt = new Date().toISOString();
-      Object.assign(existing, d);
+      if (override) {
+        Object.assign(override, d);
+      } else {
+        aq.customSpecies = aq.customSpecies || [];
+        aq.customSpecies.push(Object.assign({ createdAt: d.updatedAt }, d, isBase ? { source: 'override' } : {}));
+      }
       await save({ immediate: true });
-      toast('Espécie atualizada', 'ok');
+      toast(isBase ? 'Personalização salva' : 'Espécie atualizada', 'ok');
       ctx.nav('fauna/especies');
     }
   }, 'Salvar'));
 
   const usedBy = (aq.livestock || []).filter((x) => x.spec === editId).reduce((sum, x) => sum + (num(x.qty) || 0), 0);
-  el.appendChild(h('div', { style: { height: '9px' } }));
-  el.appendChild(h('button', {
-    class: 'btn danger', onclick: () => confirmSheet({
-      title: 'Excluir espécie do catálogo?',
-      message: usedBy
-        ? `${usedBy} animal(is) na fauna atual usam esta espécie — eles continuam registrados, mas perdem os dados técnicos (voltam ao padrão genérico "Outra espécie"). Considere editar ou remover essa fauna antes.`
-        : 'Nenhum animal da fauna atual usa esta espécie agora.',
-      confirmText: 'Excluir', danger: true,
-      onConfirm: async () => { await remove('customSpecies', editId); ctx.nav('fauna/especies'); }
-    })
-  }, icon('trash', 'ic ic-sm'), 'Excluir espécie'));
+  if (override) {
+    el.appendChild(h('div', { style: { height: '9px' } }));
+    el.appendChild(h('button', {
+      class: 'btn danger', onclick: () => confirmSheet({
+        title: isBase ? 'Restaurar os dados originais desta espécie?' : 'Excluir espécie do catálogo?',
+        message: isBase
+          ? (usedBy ? `${usedBy} animal(is) na fauna atual usam esta espécie. Os dados técnicos voltam ao padrão da base fixa do app — a espécie continua disponível, só sem a sua personalização.` : 'Os dados técnicos desta espécie voltam ao padrão da base fixa do app.')
+          : (usedBy ? `${usedBy} animal(is) na fauna atual usam esta espécie — eles continuam registrados, mas perdem os dados técnicos (voltam ao padrão genérico "Outra espécie"). Considere editar ou remover essa fauna antes.` : 'Nenhum animal da fauna atual usa esta espécie agora.'),
+        confirmText: isBase ? 'Restaurar padrão' : 'Excluir', danger: true,
+        onConfirm: async () => { await remove('customSpecies', editId); ctx.nav('fauna/especies'); }
+      })
+    }, icon('trash', 'ic ic-sm'), isBase ? 'Restaurar padrão original' : 'Excluir espécie'));
+  }
 
-  return { title: 'Editar espécie', back: true, el };
+  return { title: isBase ? 'Personalizar espécie' : 'Editar espécie', back: true, el };
 }
 
 /* ================= plano de povoamento ================= */
@@ -640,6 +713,13 @@ export function stockingView(ctx) {
     input({ type: 'number', min: '1', value: String(aq.stocking.intervalDays), oninput: (e) => { aq.stocking.intervalDays = num(e.target.value) || 8; save(); } }),
     h('div', { class: 'f-hint', text: 'Referência configurável, não regra absoluta. Depois de cada entrada, observe antes do próximo lote.' })
   )));
+
+  const orderIssues = stockingOrderIssues(aq);
+  if (orderIssues.length) {
+    el.appendChild(h('div', { class: 'alert warn' }, icon('alert', 'ic'), h('div', { style: { flex: '1' } },
+      h('div', { class: 'alert-t', text: '🟡 Ordem do plano em desacordo com a regra do Betta' }),
+      h('div', { class: 'alert-d' }, ...orderIssues.map((m) => h('div', { style: { marginTop: '3px' }, text: '• ' + m }))))));
+  }
 
   el.appendChild(h('div', { class: 'sec-title', text: 'Ordem planejada' }));
   if (!aq.stocking.plan.length) el.appendChild(h('div', { class: 'card' }, empty('cal', 'Nenhum lote planejado.')));

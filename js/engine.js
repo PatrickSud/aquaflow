@@ -169,6 +169,10 @@ export function cyclingStatus(aq) {
 
   const zeros = zeroStreak(aq);
   const sawPeak = (aq.tests || []).some((t) => (num(t.nh3) ?? 0) > 0 || (num(t.no2) ?? 0) > 0);
+  // Usuário declarou (Ciclagem → "Já era ciclado antes de usar o app") que o ciclo já
+  // tinha acontecido antes de registrar aqui. Só entra em jogo se a leitura de HOJE já
+  // está em 0/0 — nunca dispensa amônia/nitrito = 0 nem inventa uma leitura que falta.
+  const declaredMature = !!c.declaredMature;
 
   let phase = 1, label = 'Fase 1 — amônia acumulando', desc = '', s = 'warn';
 
@@ -181,7 +185,12 @@ export function cyclingStatus(aq) {
   const t3 = no3[0]?.v ?? null;
 
   if (a === 0 && n === 0) {
-    if (zeros.count >= 3 && zeros.spanDays >= 5) { phase = 4; label = 'Ciclo aparentemente concluído'; s = 'ok'; desc = `${zeros.count} medições consecutivas com amônia e nitrito em 0, ao longo de ${zeros.spanDays} dias.`; }
+    if (declaredMature || (zeros.count >= 3 && zeros.spanDays >= 5)) {
+      phase = 4; label = 'Ciclo aparentemente concluído'; s = 'ok';
+      desc = (zeros.count >= 3 && zeros.spanDays >= 5)
+        ? `${zeros.count} medições consecutivas com amônia e nitrito em 0, ao longo de ${zeros.spanDays} dias.`
+        : 'Aquário declarado como já ciclado antes do uso do app, com amônia e nitrito em 0 na medição de hoje.';
+    }
     else { phase = 4; label = 'Fase 4 — confirmando o fim do ciclo'; s = 'warn'; desc = `Amônia e nitrito em 0, mas ainda são ${zeros.count} medição(ões) em ${zeros.spanDays} dia(s). Uma única leitura não confirma estabilidade.`; }
   } else if (n !== null && n > 0) {
     const tn = trend(aq, 'no2');
@@ -195,21 +204,20 @@ export function cyclingStatus(aq) {
     phase = 3; label = 'Fase 3 — nitrato aparecendo'; desc = 'Sinal de que a nitrificação está funcionando.';
   }
 
-  const done = phase === 4 && zeros.count >= 3 && zeros.spanDays >= 5;
+  const done = phase === 4 && (declaredMature || (zeros.count >= 3 && zeros.spanDays >= 5));
   return { day, phase, label, desc, s, zeros, sawPeak, done };
 }
 
-/** Quantas medições consecutivas mais recentes têm NH3 = 0 e NO2 = 0. */
+/** Quantas medições consecutivas mais recentes têm NH3 = 0 e NO2 = 0.
+ *  Um teste sem nenhum dos dois, ou com só UM dos dois medido (e em 0), não
+ *  confirma nem contradiz a sequência — é ignorado sem quebrá-la. Só quebra
+ *  quando algum dos dois foi de fato medido e deu maior que 0. */
 export function zeroStreak(aq) {
   let count = 0, first = null, last = null;
   for (const t of aq.tests || []) {
     const a = num(t.nh3), n = num(t.no2);
-    if (a === null && n === null) continue;      // teste sem esses parâmetros: ignora
-    if (a === 0 && n === 0) {
-      count++;
-      if (!last) last = t.at;
-      first = t.at;
-    } else break;
+    if ((a !== null && a > 0) || (n !== null && n > 0)) break;
+    if (a === 0 && n === 0) { count++; if (!last) last = t.at; first = t.at; }
   }
   const spanDays = first && last ? Math.max(0, daysBetween(first, last)) : 0;
   return { count, first, last, spanDays };
@@ -254,11 +262,15 @@ export function canAddFish(aq) {
     return R;
   }
 
-  const stale = daysSince(aq.tests[0].at);
-  if (stale > 3) {
+  // "Desatualizado" precisa olhar a data da AMÔNIA e do NITRITO especificamente — não a
+  // do teste mais recente de qualquer tipo. Um teste recente só de pH/temperatura não
+  // renova a validade de uma leitura antiga de amônia/nitrito usada nesta decisão.
+  const staleDays = Math.max(daysSince(nh3.at), daysSince(no2.at));
+  if (staleDays > 3) {
+    const olderAt = daysSince(nh3.at) >= daysSince(no2.at) ? nh3.at : no2.at;
     R.level = 'bad';
     R.title = 'Dados desatualizados — refaça os testes antes de decidir';
-    R.reasons.push(`A última medição foi ${relDay(aq.tests[0].at)} (${stale} dias). Para decidir povoamento, use dados de até 3 dias.`);
+    R.reasons.push(`A leitura de amônia/nitrito mais antiga usada nesta decisão foi ${relDay(olderAt)} (${staleDays} dias). Para decidir povoamento, use amônia e nitrito medidos até 3 dias atrás.`);
     R.next.push('Refazer amônia e nitrito hoje.');
     R.question = 'Consegue medir amônia e nitrito hoje para atualizar a base de decisão?';
     return R;
@@ -267,21 +279,26 @@ export function canAddFish(aq) {
   // regras inegociáveis já foram checadas acima; aqui amônia e nitrito estão em 0
   const z = zeroStreak(aq);
   const cyc = cyclingStatus(aq);
+  // Aquário declarado como já ciclado antes do uso do app (Ciclagem → declarar maduro):
+  // dispensa o histórico de 3 medições/5 dias e o pico registrado, mas NUNCA dispensa
+  // amônia/nitrito = 0 agora nem dados recentes — essas checagens já passaram acima.
+  const declaredMature = !!aq.cycling?.declaredMature;
 
-  if (z.count < 3 || z.spanDays < 5) {
+  if (!declaredMature && (z.count < 3 || z.spanDays < 5)) {
     R.level = 'warn';
     R.title = 'Condicional — falta confirmar estabilidade';
     R.reasons.push(`Amônia e nitrito estão em 0, mas há ${z.count} medição(ões) nesse estado em ${z.spanDays} dia(s). Uma leitura isolada não comprova ciclo concluído.`);
     R.next.push(`Repetir o teste até somar 3 medições em 0/0 ao longo de pelo menos 5 dias (faltam ${Math.max(0, 3 - z.count)}).`);
+    R.next.push('Se este aquário já era ciclado antes de você começar a usar o app, declare isso em Ciclagem.');
     R.question = 'Você pode repetir amônia e nitrito em 48 h para confirmar a sequência de zeros?';
     return R;
   }
 
-  if (!cyc.sawPeak) {
+  if (!declaredMature && !cyc.sawPeak) {
     R.level = 'warn';
     R.title = 'Condicional — sem histórico do pico registrado';
     R.reasons.push('Nunca foi registrada amônia ou nitrito acima de 0 neste app, então não há como comprovar que o ciclo realmente aconteceu — apenas que agora está em 0.');
-    R.next.push('Se o ciclo ocorreu antes de começar a registrar, faça um teste de carga: alimente normalmente por 3 dias e confirme que amônia e nitrito continuam em 0.');
+    R.next.push('Se o ciclo ocorreu antes de começar a registrar, faça um teste de carga: alimente normalmente por 3 dias e confirme que amônia e nitrito continuam em 0. Ou, se tem certeza de que o ciclo já ocorreu, declare isso em Ciclagem.');
     R.question = 'O pico de amônia e nitrito foi observado antes de você começar a registrar aqui? Em que datas aproximadamente?';
     return R;
   }
@@ -301,7 +318,7 @@ export function canAddFish(aq) {
   if (warns.length) {
     R.level = 'warn';
     R.title = 'Liberado com condições';
-    R.reasons.push(`Ciclo confirmado: ${z.count} medições em 0/0 ao longo de ${z.spanDays} dias.`);
+    R.reasons.push(declaredMature && !(z.count >= 3 && z.spanDays >= 5) ? 'Ciclo considerado maduro: aquário declarado como já ciclado antes do uso do app, com amônia e nitrito em 0 hoje.' : `Ciclo confirmado: ${z.count} medições em 0/0 ao longo de ${z.spanDays} dias.`);
     R.reasons.push(...warns);
     R.next.push('Resolver os pontos acima, introduzir um lote pequeno por vez e testar amônia/nitrito em 24–48 h após cada entrada.');
     R.question = 'Qual espécie e quantidade você pretende introduzir primeiro, e o nitrato já está abaixo de 20 ppm?';
@@ -310,7 +327,7 @@ export function canAddFish(aq) {
 
   R.level = 'ok';
   R.title = 'Liberado para iniciar o povoamento gradual';
-  R.reasons.push(`Amônia 0 e nitrito 0 confirmados em ${z.count} medições ao longo de ${z.spanDays} dias.`);
+  R.reasons.push(declaredMature && !(z.count >= 3 && z.spanDays >= 5) ? 'Ciclo considerado maduro: aquário declarado como já ciclado antes do uso do app, com amônia e nitrito em 0 hoje.' : `Amônia 0 e nitrito 0 confirmados em ${z.count} medições ao longo de ${z.spanDays} dias.`);
   R.reasons.push(`Nitrato ${fmtNum(no3.v, 1)} ppm, pH ${fmtNum(ph.v, 2)}, temperatura ${fmtNum(tp.v, 1)} °C — dentro das faixas definidas.`);
   R.next.push('Entrar com um lote pequeno (o primeiro grupo do plano de povoamento).');
   R.next.push('Testar amônia e nitrito 24–48 h após a introdução e aguardar o intervalo antes do próximo lote.');
@@ -327,9 +344,28 @@ export function specOf(aq, id) {
   return custom || SPEC[id] || SPEC.outro;
 }
 
-/** Lista de espécies para exibir em seletores: a base fixa + as que este aquário já cadastrou via IA. */
+/** Lista de espécies para exibir em seletores: a base fixa + as que este aquário já cadastrou
+ *  via IA/manual. Quando o usuário personaliza uma espécie da base fixa (mesmo id em
+ *  aq.customSpecies — ver specOf), a versão original não aparece duplicada aqui: a
+ *  personalização a substitui. */
 export function allSpecies(aq) {
-  return [...SPECIES, ...(aq?.customSpecies || [])];
+  const custom = aq?.customSpecies || [];
+  const overridden = new Set(custom.map((s) => s.id));
+  return [...SPECIES.filter((s) => !overridden.has(s.id)), ...custom];
+}
+
+/** Confere a regra "Betta é sempre o último a entrar" contra o plano de povoamento
+ *  real do usuário (aq.stocking.plan), em vez de deixar isso só como texto de
+ *  orientação na tela. Considera apenas os lotes ainda não introduzidos. */
+export function stockingOrderIssues(aq) {
+  const plan = (aq.stocking?.plan || []).filter((p) => !p.done);
+  const issues = [];
+  if (plan.length < 2) return issues;
+  const bettaIdx = plan.findIndex((p) => specOf(aq, p.spec)?.betta === 'self');
+  if (bettaIdx !== -1 && bettaIdx !== plan.length - 1) {
+    issues.push(`O Betta está planejado para entrar antes de outro(s) lote(s) neste plano. A recomendação é que ele seja sempre o último a entrar no comunitário — mova-o para a última posição.`);
+  }
+  return issues;
 }
 
 /* ---------------- carga biológica ---------------- */
@@ -545,11 +581,13 @@ export function tpaVerdict(aq) {
     return R;
   }
 
-  const stale = daysSince(aq.tests[0].at);
+  // mesma correção do canAddFish: olha a data de cada leitura usada (nitrato/amônia/
+  // nitrito), não a do teste mais recente de qualquer tipo.
+  const stale = Math.max(daysSince(no3.at), daysSince(nh3.at), daysSince(no2.at));
   if (stale > 4) {
     R.level = 'bad';
     R.title = 'Meça antes de trocar';
-    R.reasons.push(`A última medição foi ${relDay(aq.tests[0].at)}. Teste nitrato, amônia e nitrito hoje e a decisão sai na hora.`);
+    R.reasons.push(`A leitura mais antiga usada nesta decisão (nitrato, amônia ou nitrito) já tem ${stale} dia(s). Teste os três hoje e a decisão sai na hora.`);
     return R;
   }
 

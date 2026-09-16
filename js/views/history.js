@@ -83,11 +83,14 @@ export default function history(ctx) {
   el.appendChild(h('div', { class: 'sec-title', text: 'Linha do tempo' }));
   el.appendChild(h('div', { class: 'card' }, h('div', { class: 'card-pad' }, tlEl(tl))));
 
-  /* todas as medições */
-  el.appendChild(h('div', { class: 'sec-title', text: `Todas as medições (${aq.tests.length})` }));
+  /* todas as medições — limitado a 40 para não pesar o app com anos de histórico
+     (mesmo padrão usado em Dosagens/Alimentação); o CSV abaixo tem tudo. */
+  const MAX_LIST = 40;
+  el.appendChild(h('div', { class: 'sec-title', text: `Medições mais recentes (${Math.min(MAX_LIST, aq.tests.length)} de ${aq.tests.length})` }));
   const tc = h('div', { class: 'card' });
-  aq.tests.forEach((t) => tc.appendChild(row(fmtDate(t.at), describeTest(t) || '—', { right: t.method ? h('span', { style: { fontSize: '11.5px', color: 'var(--tx-3)' }, text: t.method }) : null })));
+  aq.tests.slice(0, MAX_LIST).forEach((t) => tc.appendChild(row(fmtDate(t.at), describeTest(t) || '—', { right: t.method ? h('span', { style: { fontSize: '11.5px', color: 'var(--tx-3)' }, text: t.method }) : null })));
   el.appendChild(tc);
+  if (aq.tests.length > MAX_LIST) el.appendChild(h('div', { class: 'note', style: { margin: '8px 0 4px' }, text: `Mostrando as ${MAX_LIST} mais recentes. Use "Exportar medições (CSV)" abaixo para ver o histórico completo.` }));
 
   el.appendChild(h('button', {
     class: 'btn sec', onclick: () => {
