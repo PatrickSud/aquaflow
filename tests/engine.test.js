@@ -9,7 +9,7 @@ import assert from 'node:assert/strict';
 import { newAquarium, SPECIES } from '../js/model.js';
 import {
   fmtNum, bioload, compatibility, canAddFish, tpaCalc, primeDose,
-  specOf, allSpecies, zeroStreak, statusOf
+  specOf, allSpecies, zeroStreak, statusOf, stockingOrderIssues
 } from '../js/engine.js';
 
 /* ---------------- fixtures ---------------- */
@@ -161,6 +161,60 @@ describe('canAddFish', () => {
     assert.equal(r.level, 'bad');
     assert.ok(r.missing.length > 0);
   });
+  test('desatualizado usa a data da amônia/nitrito específica, não do teste mais recente de qualquer tipo', () => {
+    // teste de hoje só tem pH/temperatura (sem amônia/nitrito) — não deveria "renovar"
+    // a validade de uma leitura de amônia/nitrito de 5 dias atrás.
+    const aq = aquario({
+      tests: [
+        mkTest({ ph: 7, temp: 25 }, 0),
+        mkTest({ nh3: 0, no2: 0, no3: 10, ph: 7, temp: 25 }, 5)
+      ]
+    });
+    const r = canAddFish(aq);
+    assert.equal(r.level, 'bad');
+    assert.match(r.title, /desatualizado/i);
+  });
+  test('não fica "desatualizado" se a leitura mais recente de qualquer tipo for antiga mas amônia/nitrito forem de hoje', () => {
+    const aq = cycledAquarium({
+      tests: [
+        mkTest({ nh3: 0, no2: 0, no3: 10, ph: 7, temp: 25 }, 0),
+        mkTest({ nh3: 0, no2: 0, no3: 12, ph: 7, temp: 25 }, 3),
+        mkTest({ nh3: 0, no2: 0, no3: 15, ph: 7, temp: 25 }, 6),
+        mkTest({ nh3: 0.5, no2: 0.25, no3: 5, ph: 7, temp: 25 }, 20)
+      ]
+    });
+    assert.equal(canAddFish(aq).level, 'ok');
+  });
+  test('aquário declarado como já ciclado dispensa o histórico de 3 medições/5 dias, mas não a amônia/nitrito de hoje', () => {
+    const aq = aquario({
+      tests: [mkTest({ nh3: 0, no2: 0, no3: 5, ph: 7, temp: 25 }, 0)], // uma única medição, sem pico registrado
+      cycling: { active: true, start: new Date().toISOString().slice(0, 10), phase: 1, done: false, doneAt: null, declaredMature: true, declaredMatureAt: new Date().toISOString() }
+    });
+    assert.equal(canAddFish(aq).level, 'ok');
+  });
+  test('aquário declarado como já ciclado ainda bloqueia se a amônia/nitrito de hoje não estiverem em 0', () => {
+    const aq = aquario({
+      tests: [mkTest({ nh3: 0.1, no2: 0, no3: 5, ph: 7, temp: 25 }, 0)],
+      cycling: { active: true, start: new Date().toISOString().slice(0, 10), phase: 1, done: false, doneAt: null, declaredMature: true, declaredMatureAt: new Date().toISOString() }
+    });
+    assert.equal(canAddFish(aq).level, 'bad');
+  });
+});
+
+/* ================= ordem do plano de povoamento (regra do Betta por último) ================= */
+describe('stockingOrderIssues', () => {
+  test('sem problema quando o Betta é o último lote não introduzido', () => {
+    const aq = aquario({ stocking: { plan: [{ id: 's1', spec: 'neon', qty: 8, done: false }, { id: 's2', spec: 'betta', qty: 1, done: false }] } });
+    assert.equal(stockingOrderIssues(aq).length, 0);
+  });
+  test('aponta problema quando o Betta está antes de outro lote não introduzido', () => {
+    const aq = aquario({ stocking: { plan: [{ id: 's1', spec: 'betta', qty: 1, done: false }, { id: 's2', spec: 'neon', qty: 8, done: false }] } });
+    assert.equal(stockingOrderIssues(aq).length, 1);
+  });
+  test('ignora lotes já introduzidos ao decidir se o Betta está por último', () => {
+    const aq = aquario({ stocking: { plan: [{ id: 's1', spec: 'neon', qty: 8, done: true }, { id: 's2', spec: 'betta', qty: 1, done: false }] } });
+    assert.equal(stockingOrderIssues(aq).length, 0);
+  });
 });
 
 /* ================= sequência de zeros (base da confirmação de ciclo) ================= */
@@ -175,6 +229,27 @@ describe('zeroStreak', () => {
       ]
     });
     assert.equal(zeroStreak(aq).count, 2);
+  });
+  test('um teste com só um dos dois parâmetros medido (e em 0) não quebra a sequência', () => {
+    const aq = aquario({
+      tests: [
+        mkTest({ nh3: 0 }, 0),          // só amônia medida hoje, em 0
+        mkTest({ nh3: 0, no2: 0 }, 2),
+        mkTest({ nh3: 0, no2: 0 }, 4)
+      ]
+    });
+    const z = zeroStreak(aq);
+    assert.equal(z.count, 2); // só conta os dois testes completos, mas não quebrou por causa do parcial
+  });
+  test('um valor medido e maior que zero quebra a sequência mesmo se for o único parâmetro daquele teste', () => {
+    const aq = aquario({
+      tests: [
+        mkTest({ nh3: 0.2 }, 0),        // só amônia medida hoje, mas positiva: quebra
+        mkTest({ nh3: 0, no2: 0 }, 2),
+        mkTest({ nh3: 0, no2: 0 }, 4)
+      ]
+    });
+    assert.equal(zeroStreak(aq).count, 0);
   });
 });
 
@@ -216,5 +291,12 @@ describe('specOf / allSpecies', () => {
   test('allSpecies soma a base fixa com o catálogo customizado do aquário', () => {
     const aq = aquario({ customSpecies: [{ id: 'custom_1', n: 'Nova espécie' }] });
     assert.equal(allSpecies(aq).length, SPECIES.length + 1);
+  });
+  test('allSpecies não duplica quando uma espécie da base fixa foi personalizada (mesmo id)', () => {
+    const aq = aquario({ customSpecies: [{ id: 'cory', n: 'Corydora personalizada' }] });
+    const all = allSpecies(aq);
+    assert.equal(all.length, SPECIES.length); // substitui, não soma
+    assert.equal(all.filter((s) => s.id === 'cory').length, 1);
+    assert.equal(all.find((s) => s.id === 'cory').n, 'Corydora personalizada');
   });
 });

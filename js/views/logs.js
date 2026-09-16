@@ -348,7 +348,7 @@ export function openNoteSheet(aq, refresh, kind = 'nota') {
       out.appendChild(field('Tipo', segmented([{ v: 'nota', n: 'Nota' }, { v: 'ocorrencia', n: 'Ocorrência' }], k, (v) => { k = v; })));
       out.appendChild(field('Data e hora', input({ type: 'datetime-local', value: at, oninput: (e) => { at = e.target.value; } })));
       out.appendChild(field('O que aconteceu', textarea({ placeholder: 'Ex.: Betta ficou parado no fundo depois da TPA…', style: { minHeight: '110px' }, oninput: (e) => { text = e.target.value; } })));
-      out.appendChild(field('Foto', photoPicker(null, (bl) => { blob = bl; }), null, true));
+      out.appendChild(field('Foto', photoPicker(null, (bl) => { blob = bl; }, { ratio: 16 / 9 }), null, true));
       b.appendChild(out);
     },
     actions: (close) => h('div', { class: 'btn-row', style: { paddingTop: '6px' } },

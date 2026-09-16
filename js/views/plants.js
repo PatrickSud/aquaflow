@@ -2,9 +2,9 @@
 
 import {
   h, icon, cardHead, row, pill, sheet, toast, field, input, textarea, select, segmented,
-  empty, kv, stepper, photoPicker, confirmSheet, todayLocal
+  empty, kv, stepper, photoPicker, confirmSheet, todayLocal, openImageLightbox
 } from '../ui.js';
-import { save, uid, remove, putPhoto, photoURL } from '../store.js';
+import { save, uid, remove, putPhoto, delPhoto, forgetPhotoURL, photoURL } from '../store.js';
 import { PLANT_STATES, PLANT_DENSITY } from '../model.js';
 import { fmtDate, relDay, ageDays, num } from '../engine.js';
 import { condName, condStatus } from './dashboard.js';
@@ -63,12 +63,15 @@ export default function plants(ctx) {
     )));
 
   el.appendChild(h('div', { class: 'sec-title', text: 'Plantas' }));
-  if (!list.length) el.appendChild(h('div', { class: 'card' }, empty('leaf', 'Nenhuma planta registrada.',
-    h('button', { class: 'btn', onclick: () => ctx.nav('plantas/nova') }, icon('plus', 'ic ic-sm'), 'Adicionar'))));
+  if (!list.length) el.appendChild(h('div', { class: 'card' }, empty('leaf', 'Nenhuma planta registrada.')));
   else list.forEach((p) => {
-    const card = h('div', { class: 'card press', onclick: () => ctx.nav('plantas/editar/' + p.id) });
-    if (p.photo) { const im = h('img', { alt: '', style: { width: '100%', height: '130px', objectFit: 'cover', display: 'block' } }); photoURL(p.photo).then((u) => { if (u) im.src = u; }); card.appendChild(im); }
-    card.appendChild(h('div', { class: 'card-pad' },
+    const card = h('div', { class: 'card' });
+    if (p.photo) {
+      const im = h('img', { alt: '', style: { width: '100%', height: '130px', objectFit: 'cover', display: 'block', cursor: 'zoom-in' } });
+      photoURL(p.photo).then((u) => { if (u) { im.src = u; im.onclick = () => openImageLightbox(u); } });
+      card.appendChild(im);
+    }
+    card.appendChild(h('div', { class: 'card-pad press', onclick: () => ctx.nav('plantas/editar/' + p.id) },
       h('div', { style: { display: 'flex', gap: '10px', alignItems: 'flex-start' } },
         h('div', { style: { flex: '1' } },
           h('div', { style: { fontSize: '15.5px', fontWeight: '700' }, text: `${p.qty}× ${p.species}` }),
@@ -91,11 +94,11 @@ export function plantForm(ctx, editId) {
   const el = h('div');
 
   const photoSlot = h('div');
-  photoSlot.appendChild(photoPicker(null, (b) => { blob = b; }));
+  photoSlot.appendChild(photoPicker(null, (b) => { blob = b; }, { ratio: 16 / 9 }));
   if (d.photo) photoURL(d.photo).then((u) => {
     if (!u) return;
     photoSlot.innerHTML = '';
-    photoSlot.appendChild(photoPicker(u, (b) => { blob = b; }));
+    photoSlot.appendChild(photoPicker(u, (b) => { blob = b; }, { ratio: 16 / 9 }));
   });
 
   el.appendChild(field('Espécie', input({ value: d.species, placeholder: 'ex.: Vallisneria', oninput: (e) => { d.species = e.target.value; } })));
@@ -112,7 +115,12 @@ export function plantForm(ctx, editId) {
   el.appendChild(h('button', {
     class: 'btn', onclick: async () => {
       if (!d.species.trim()) { toast('Informe a espécie', 'bad'); return; }
-      if (blob) { const pid = uid(); await putPhoto(pid, blob); d.photo = pid; }
+      if (blob) {
+        const pid = uid();
+        await putPhoto(pid, blob);
+        if (d.photo) { forgetPhotoURL(d.photo); await delPhoto(d.photo); }
+        d.photo = pid;
+      }
       d.updatedAt = new Date().toISOString();
       aq.plants = aq.plants || [];
       if (ex) Object.assign(ex, d);

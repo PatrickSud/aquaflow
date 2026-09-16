@@ -26,6 +26,7 @@ No celular, **na mesma rede Wi‑Fi**, abra `http://SEU_IP:8000` (ex.: `http://1
 Duas coisas a saber nesse modo:
 - Serve para ver o app funcionando e testar os fluxos.
 - A instalação na tela de início e o modo offline só funcionam de verdade com **HTTPS** — ou seja, depois de publicar (passo 2). Por isso o próximo passo existe.
+- **A câmera embutida (botão "Tirar foto") também só funciona com HTTPS.** Nesse modo de teste local por `http://`, o navegador bloqueia o acesso à câmera — a opção "Escolher da galeria" continua funcionando normalmente.
 
 Para parar o servidor: `Ctrl + C` na primeira janela.
 
@@ -57,7 +58,7 @@ Esse é o endereço que você abre no celular. Guarde-o.
 Toda vez que eu (ou você) mudar algum arquivo:
 
 1. Suba os arquivos alterados no GitHub (**Add file → Upload files** novamente, ele sobrescreve).
-2. **Importante:** abra o `sw.js` e aumente a linha `const VERSION = ...`. A versão atual é **`'v1.1.1'`** — na próxima alteração passe para `'v1.1.2'`, depois `'v1.1.3'`, e assim por diante.
+2. **Importante:** abra o `sw.js` e aumente a linha `const VERSION = ...`. A versão atual é **`'v1.14.0'`** — na próxima alteração passe para `'v1.14.1'` (ou `'v1.15.0'` se for uma mudança maior), e assim por diante.
 
 Sem trocar essa versão, o celular pode continuar servindo a versão antiga guardada em cache. Com a versão trocada, o app detecta sozinho e mostra o aviso **"Nova versão disponível → Atualizar"**.
 
@@ -296,7 +297,7 @@ Sem o passo 3, o login falha com "domínio não autorizado".
 
 ### 10.6 Configuração no app — já feito
 
-O arquivo [js/firebase-config.js](C:/Claude/AquaFlow/js/firebase-config.js) já está preenchido com o projeto `aquaflow-27258`, e a versão do `sw.js` já foi para `v1.1.1`. Nada a fazer aqui — basta publicar no GitHub.
+O arquivo [js/firebase-config.js](C:/Claude/AquaFlow/js/firebase-config.js) já está preenchido com o projeto `aquaflow-27258`, e a versão do `sw.js` já foi para `v1.14.0`. Nada a fazer aqui — basta publicar no GitHub.
 
 Se um dia precisar trocar de projeto: ou edita esse arquivo, ou usa **Ajustes → Conta e nuvem → Colar configuração do Firebase** (que vale só no aparelho onde você colar, útil para testar antes de publicar).
 

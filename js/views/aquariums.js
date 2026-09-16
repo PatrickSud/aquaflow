@@ -175,7 +175,7 @@ export function aquariumForm(ctx, editId) {
     }
 
     if (step === 3) {
-      bodyEl.appendChild(field('Foto do aquário', photoPicker(existingPhotoURL, (b) => { blob = b; }), null, true));
+      bodyEl.appendChild(field('Foto do aquário', photoPicker(existingPhotoURL, (b) => { blob = b; }, { ratio: 16 / 9 }), null, true));
       bodyEl.appendChild(field('Observações', textarea({ value: d.notes0 || '', placeholder: 'Ex.: aquário plantado comunitário, foco em Betta…', oninput: (e) => { d.notes0 = e.target.value; } }), null, true));
 
       if (!ex) {
