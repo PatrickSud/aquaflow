@@ -605,6 +605,29 @@ export function speciesCatalogView(ctx) {
   return { title: 'Minhas espécies', back: true, el };
 }
 
+function openSpeciesInfo(sp) {
+  const g = specGlyph(sp);
+  return sheet({
+    title: sp.n,
+    body: (b) => {
+      b.appendChild(h('div', { style: { display: 'flex', justifyContent: 'center', marginBottom: '4px' } },
+        h('div', { style: { width: '64px', height: '64px', borderRadius: '16px', background: g.color + '22', color: g.color, display: 'grid', placeItems: 'center' } }, icon(g.iconName, 'ic'))));
+      b.appendChild(kv('Espécie', sp.n + (sp.sci ? ` (${sp.sci})` : '')));
+      b.appendChild(kv('Tamanho adulto', `~${sp.adult} cm`));
+      b.appendChild(kv('Posição na coluna', sp.zona));
+      b.appendChild(kv('Cardume mínimo', sp.grupo > 1 ? `${sp.grupo} indivíduos` : 'não é de cardume'));
+      b.appendChild(kv('Faixa de temperatura', `${sp.temp[0]}–${sp.temp[1]} °C`));
+      b.appendChild(kv('Faixa de pH', `${sp.ph[0]}–${sp.ph[1]}`));
+      b.appendChild(kv('Risco para camarões', sp.camarao === 'self' ? '— (é camarão)' : sp.camarao));
+      b.appendChild(kv('Risco para plantas', sp.planta));
+      b.appendChild(kv('Convivência com Betta', sp.betta === 'self' ? '— (é o próprio Betta)' : sp.betta));
+      if (sp.obs) b.appendChild(h('div', { class: 'note', style: { marginTop: '10px' }, text: sp.obs }));
+      b.appendChild(h('div', { class: 'note', style: { marginTop: '10px' }, text: 'Espécie da base fixa do app — compartilhada por todos os aquários, não editável aqui.' }));
+    },
+    actions: (close) => h('button', { class: 'btn sec', text: 'Fechar', onclick: () => close() })
+  });
+}
+
 export function speciesForm(ctx, editId) {
   const aq = ctx.aq;
   const base = SPEC[editId] && editId !== 'outro' ? SPEC[editId] : null;
