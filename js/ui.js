@@ -95,6 +95,21 @@ export function toast(msg, kind = '') {
   setTimeout(() => { t.style.transition = 'opacity .25s'; t.style.opacity = '0'; setTimeout(() => t.remove(), 260); }, 2400);
 }
 
+/* ---------------- lightbox de imagem ---------------- */
+/** Expande uma foto em tela cheia. Toque fora ou no X fecha. */
+export function openImageLightbox(url) {
+  const root = $('#modal-root');
+  const bd = h('div', { class: 'lightbox-bd' },
+    h('img', { src: url, alt: '', class: 'lightbox-img', onclick: (e) => e.stopPropagation() }),
+    h('button', { class: 'lightbox-close', 'aria-label': 'Fechar', onclick: () => close() }, icon('x', 'ic'))
+  );
+  const close = () => { bd.classList.remove('in'); setTimeout(() => bd.remove(), 180); };
+  root.appendChild(bd);
+  requestAnimationFrame(() => bd.classList.add('in'));
+  bd.addEventListener('click', close);
+  return { close };
+}
+
 /* ---------------- bottom sheet ---------------- */
 let openSheets = 0;
 export function sheet({ title, body, actions, onClose, big }) {

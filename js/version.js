@@ -5,4 +5,4 @@
    que existe por outro motivo (invalidar o cache de arquivos estáticos) e
    precisa continuar sendo bumpada à parte a cada deploy que mude algum
    arquivo — mas é uma boa prática manter os dois números iguais. */
-export const APP_VERSION = '1.10.3';
+export const APP_VERSION = '1.13.0';
